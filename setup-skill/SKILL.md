@@ -384,7 +384,7 @@ git remote add origin git@github.com:<org>/<project>-devcontainer.git
 git push -u origin main
 ```
 
-**2. Clone and start on the server:**
+**2. Clone on the server and run init.sh:**
 
 IMPORTANT: `initializeCommand` from `devcontainer.json` only runs via VS Code "Reopen in Container", NOT via `docker compose up -d`. On the server you must run `init.sh` manually first to clone the project repos.
 
@@ -396,15 +396,37 @@ cd <project>-devcontainer
 
 # Clone project repos (init.sh does NOT run automatically with docker compose)
 .devcontainer/init.sh
+```
 
-# Start containers — MUST be AFTER init.sh
+**3. Configure credentials BEFORE starting containers:**
+
+Credentials must be set up before `docker compose up -d` — the ungit service requires its secret file to exist, and the devcontainer needs `.env` for git access.
+
+```bash
 cd .devcontainer
+
+# 3a. Create .env with read-only git credentials for Claude:
+cp .env.example .env
+echo 'GIT_CREDENTIALS_READONLY=https://<user>:<read-only-PAT>@<git-host>' >> .env
+
+# 3b. Create ungit write credentials (Docker Compose secret):
+mkdir -p ~/.secrets/<project> && chmod 700 ~/.secrets/<project>
+echo "https://<user>:<write-PAT>@<git-host>" > ~/.secrets/<project>/git-credentials-write
+chmod 600 ~/.secrets/<project>/git-credentials-write
+```
+
+**IMPORTANT:** Never put write PAT in `.env` — it's mounted into the devcontainer and visible to Claude. Write credentials use Docker secrets (isolated to ungit container only).
+
+Note: env vars from `env_file` are visible to processes started by Docker (Claude Code in tmux) but **NOT in SSH sessions**. To verify: `docker compose exec devcontainer env | grep <VAR>`.
+
+**4. Start containers:**
+```bash
 docker compose up -d
 ```
 
-**ORDER MATTERS:** Repos must be cloned (init.sh) BEFORE `docker compose up -d`. If docker compose runs first, Docker creates empty directories for bind mounts. When init.sh later clones repos, the bind mounts still point to the old empty inodes — the container sees empty `/workspace/<repo>/` even though the host has content. Fix: `docker compose up -d --force-recreate devcontainer`.
+**ORDER MATTERS:** Repos must be cloned (init.sh) and credentials configured BEFORE `docker compose up -d`. If docker compose runs first, Docker creates empty directories for bind mounts. When init.sh later clones repos, the bind mounts still point to the old empty inodes — the container sees empty `/workspace/<repo>/` even though the host has content. Fix: `docker compose up -d --force-recreate devcontainer`.
 
-**3. Verify:**
+**5. Verify:**
 ```bash
 docker compose ps                              # all services healthy?
 docker compose logs firewall --tail=20         # squid + firewall manager up?
@@ -413,7 +435,7 @@ docker compose logs devcontainer --tail=20     # Claude Code starting in tmux?
 
 ---
 
-## Phase 6: Verify Access and Configure
+## Phase 6: Verify Access
 
 ### 6.1 Verify connectivity
 
@@ -422,7 +444,14 @@ docker compose logs devcontainer --tail=20     # Claude Code starting in tmux?
 - **Ungit (git push):** `http://<server-hostname>:8N04`
 - **Portal:** `http://<server-hostname>` — project appears automatically
 
-### 6.2 Git credentials on the server (one-time setup)
+### 6.2 Verify credential isolation
+
+```bash
+docker exec -u node <project>-devcontainer-1 cat /run/secrets/git-credentials-write 2>&1
+# Expected: No such file or directory
+```
+
+### 6.3 Git credentials on the server (one-time setup)
 
 Use **fine-grained PATs** (one per GitHub organization) with `Contents: Read-only` permission. Classic PATs don't support read-only repo access.
 
@@ -448,51 +477,6 @@ echo "https://<user>:<PAT>@dev.azure.com" > ~/.git-credentials-<org>
 ```
 
 **IMPORTANT:** Always clone Azure DevOps repos via HTTPS (`https://...`), not SSH (`git@...`). SSH requires an SSH key on the server; PAT credentials only work with HTTPS URLs.
-
-### 6.3 Git credentials inside the devcontainer
-
-Claude needs a **read-only PAT** to pull project repos. Credentials are auto-seeded from `.env` (see Phase 4b):
-
-```bash
-cd ~/projects/<project>-devcontainer/.devcontainer
-echo 'GIT_CREDENTIALS_READONLY=https://<user>:<read-only-PAT>@<git-host>' >> .env
-docker compose up -d --force-recreate devcontainer
-```
-
-This PAT only needs read access to the project repos. Stored in `.env` — **survives recreate and `down -v`**. Credentials are re-seeded at every container start.
-
-### 6.4 Ungit write credentials
-
-Ungit needs a **write PAT** for push operations. Use Docker Compose secrets (see Phase 4b):
-
-```bash
-mkdir -p ~/.secrets/<project> && chmod 700 ~/.secrets/<project>
-echo "https://<user>:<write-PAT>@<git-host>" > ~/.secrets/<project>/git-credentials-write
-chmod 600 ~/.secrets/<project>/git-credentials-write
-docker compose up -d --force-recreate ungit
-```
-
-The write PAT is isolated from Claude — only the ungit container can access it. Verify isolation:
-```bash
-docker exec -u node <project>-devcontainer-1 cat /run/secrets/git-credentials-write 2>&1
-# Expected: No such file or directory
-```
-
-### 6.5 Configure .env
-
-Create `.env` on the server with read-only credentials and any project-specific vars:
-
-```bash
-cd ~/projects/<project>-devcontainer/.devcontainer
-cp .env.example .env
-# Add read-only git credentials:
-echo 'GIT_CREDENTIALS_READONLY=https://<user>:<read-only-PAT>@<git-host>' >> .env
-docker compose up -d --force-recreate devcontainer
-```
-
-**IMPORTANT:** Never put write PAT in `.env` — it's mounted into the devcontainer and visible to Claude. Write credentials use Docker secrets (see Phase 6.4).
-
-Note: env vars from `env_file` are visible to processes started by Docker (Claude Code in tmux) but **NOT in SSH sessions**. To verify: `docker compose exec devcontainer env | grep <VAR>`.
 
 ---
 
