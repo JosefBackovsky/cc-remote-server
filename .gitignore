@@ -24,6 +24,7 @@ venv/
 *.tfstate.backup
 *.tfstate.*.backup
 .terraform.tfstate.lock.info
+.terraform.lock.hcl
 terraform.tfvars
 *.auto.tfvars
 
