@@ -1,16 +1,57 @@
+import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from database import init_db, create_request, get_request, list_requests, update_request_status
+from database import (
+    init_db, create_request, get_request, list_requests, update_request_status,
+    create_rule, list_rules, import_whitelist,
+)
 from whitelist import read_whitelist, add_domain, remove_domain
+
+logger = logging.getLogger(__name__)
+
+
+async def _migrate_whitelist_to_rules():
+    """One-time migration: import whitelist.txt into rules table."""
+    rules = await list_rules()
+    if rules:
+        return  # already migrated
+
+    # Import whitelist
+    whitelist_path = Path(os.environ.get("WHITELIST_PATH", "/data/whitelist.txt"))
+    default_path = Path("/opt/whitelist-default.txt")
+
+    source = whitelist_path if whitelist_path.exists() else default_path
+    if source.exists():
+        domains = [line.strip() for line in source.read_text().splitlines()
+                   if line.strip() and not line.strip().startswith("#")]
+        count = await import_whitelist(domains)
+        logger.info("Migrated %d domains from %s to rules", count, source)
+
+    # Import EXTRA_DOMAINS
+    extra = os.environ.get("EXTRA_DOMAINS", "")
+    if extra:
+        extra_domains = [d.strip() for d in extra.split(",") if d.strip()]
+        count = await import_whitelist(extra_domains)
+        logger.info("Imported %d extra domains to rules", count)
+
+    # Git push block rule
+    await create_rule(domain="*", action="deny",
+                      path_pattern=".*/git-receive-pack$",
+                      description="Block git push (security)")
+    logger.info("Added git push block rule")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await _migrate_whitelist_to_rules()
     yield
 
 
