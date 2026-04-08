@@ -19,10 +19,29 @@ trap cleanup EXIT
 echo "=== Building firewall image ==="
 docker build -t "$IMAGE" services/firewall/
 
+# LLM credentials from environment (set via GitHub secrets in CI)
+LLM_ARGS=()
+if [ -n "${AZURE_OPENAI_ENDPOINT:-}" ] && [ -n "${AZURE_OPENAI_API_KEY:-}" ]; then
+    echo "=== LLM credentials available — LLM tests will run ==="
+    LLM_ARGS=(
+        -e "AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}"
+        -e "AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}"
+        -e "AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-5.4-mini}"
+        -e "AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-12-01-preview}"
+        -e "LLM_ENABLED=true"
+    )
+    HAS_LLM=true
+else
+    echo "=== No LLM credentials — LLM tests will be skipped ==="
+    LLM_ARGS=(-e "LLM_ENABLED=false")
+    HAS_LLM=false
+fi
+
 echo "=== Starting container ==="
 docker run -d --name "$CONTAINER" \
     -p "$PROXY_PORT:3128" \
     -p "$API_PORT:8080" \
+    "${LLM_ARGS[@]}" \
     "$IMAGE"
 
 echo "=== Waiting for CA cert + proxy + API ==="
@@ -140,6 +159,44 @@ STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     --max-time 15 \
     "https://httpbin.org/get" 2>/dev/null || echo "000")
 assert_status "newly allowed domain (httpbin.org)" "200" "$STATUS"
+
+# --- LLM tests (only when credentials available) ---
+
+if [ "$HAS_LLM" = "true" ]; then
+    echo ""
+    echo "=== LLM evaluation tests ==="
+
+    # Test 9: unknown safe domain auto-approved by LLM
+    # docs.python.org is NOT in the default whitelist but is clearly safe
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+        --proxy "http://localhost:$PROXY_PORT" --cacert "$CA_CERT" \
+        --max-time 15 \
+        "https://docs.python.org/3/library/asyncio.html" 2>/dev/null || echo "000")
+    assert_status "LLM auto-approve safe domain (docs.python.org)" "200" "$STATUS"
+
+    # Test 10: check that LLM decision was logged
+    DECISIONS=$(curl -s "http://localhost:$API_PORT/api/decisions?limit=5")
+    if echo "$DECISIONS" | grep -q "docs.python.org"; then
+        echo "  PASS: LLM decision logged for docs.python.org"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: LLM decision not found in /api/decisions"
+        FAIL=$((FAIL + 1))
+    fi
+
+    # Test 11: check pending review exists for auto-approved domain
+    PENDING=$(curl -s "http://localhost:$API_PORT/api/decisions/pending-review")
+    if echo "$PENDING" | grep -q "docs.python.org"; then
+        echo "  PASS: auto-approved domain in pending review"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: auto-approved domain not in pending review"
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo ""
+    echo "=== LLM tests skipped (no credentials) ==="
+fi
 
 # --- Results ---
 
