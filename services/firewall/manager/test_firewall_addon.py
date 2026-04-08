@@ -1,7 +1,8 @@
+import asyncio
 import sys
 import types
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch, AsyncMock
 
 # Stub out mitmproxy
 def _make_response(status_code, body=b"", headers=None):
@@ -34,37 +35,77 @@ class TestFirewallAddon(unittest.TestCase):
             {"id": "3", "domain": "api.anthropic.com", "action": "allow"},
             {"id": "block-push", "domain": "*", "path_pattern": ".*/git-receive-pack$", "action": "deny"},
         ])
+        self.addon._cache = {}
+        self.addon._semaphore = asyncio.Semaphore(5)
+        self.addon._pending = {}
+        self.addon._audit = MagicMock()
+        self.addon._last_reload = None  # disable reloading in tests
 
-    def _make_flow(self, host, url, path="/"):
+    def _make_flow(self, host, url, path="/", method="GET"):
         flow = MagicMock()
         flow.request.pretty_host = host
         flow.request.url = url
         flow.request.path = path
-        flow.request.method = "GET"
+        flow.request.method = method
+        flow.request.headers = {}
+        flow.request.content = None
         flow.response = None
         return flow
 
     def test_allowed_domain_passes(self):
         flow = self._make_flow("github.com", "https://github.com/user/repo", "/user/repo")
-        self.addon.request(flow)
+        asyncio.run(self.addon.request(flow))
         self.assertIsNone(flow.response)
 
     def test_blocked_domain_gets_403(self):
         flow = self._make_flow("evil.com", "https://evil.com/exfil", "/exfil")
-        self.addon.request(flow)
+        with patch("firewall_addon.LLM_ENABLED", False):
+            asyncio.run(self.addon.request(flow))
         self.assertIsNotNone(flow.response)
         self.assertEqual(flow.response.status_code, 403)
 
     def test_git_push_blocked(self):
         flow = self._make_flow("github.com", "https://github.com/user/repo.git/git-receive-pack", "/user/repo.git/git-receive-pack")
-        self.addon.request(flow)
+        asyncio.run(self.addon.request(flow))
         self.assertIsNotNone(flow.response)
         self.assertEqual(flow.response.status_code, 403)
 
     def test_git_pull_allowed(self):
         flow = self._make_flow("github.com", "https://github.com/user/repo.git/git-upload-pack", "/user/repo.git/git-upload-pack")
-        self.addon.request(flow)
+        asyncio.run(self.addon.request(flow))
         self.assertIsNone(flow.response)
+
+    def test_llm_disabled_escalates(self):
+        """When LLM is disabled and no rule matches, escalate."""
+        flow = self._make_flow("unknown.com", "https://unknown.com/page", "/page")
+        with patch("firewall_addon.LLM_ENABLED", False):
+            asyncio.run(self.addon.request(flow))
+        self.assertIsNotNone(flow.response)
+        self.assertEqual(flow.response.status_code, 403)
+
+    @patch("firewall_addon.evaluate_request")
+    @patch("firewall_addon._save_decision_to_db")
+    def test_llm_approve_passes_through(self, mock_save, mock_eval):
+        """When LLM approves, request passes through."""
+        mock_eval.return_value = {"decision": "approve", "reasoning": "Safe domain"}
+        flow = self._make_flow("docs.python.org", "https://docs.python.org/3/", "/3/")
+        with patch("firewall_addon.LLM_ENABLED", True):
+            asyncio.run(self.addon.request(flow))
+        self.assertIsNone(flow.response)
+        mock_eval.assert_called_once()
+        mock_save.assert_called_once()
+
+    @patch("firewall_addon.evaluate_request")
+    @patch("firewall_addon._save_decision_to_db")
+    def test_llm_deny_blocks(self, mock_save, mock_eval):
+        """When LLM denies, request is blocked with 403."""
+        mock_eval.return_value = {"decision": "deny", "reasoning": "Suspicious exfil"}
+        flow = self._make_flow("evil.io", "https://evil.io/upload", "/upload")
+        with patch("firewall_addon.LLM_ENABLED", True):
+            asyncio.run(self.addon.request(flow))
+        self.assertIsNotNone(flow.response)
+        self.assertEqual(flow.response.status_code, 403)
+        mock_eval.assert_called_once()
 
 
 if __name__ == "__main__":
