@@ -65,6 +65,17 @@ done
 
 docker cp "$CONTAINER:/data/certs/mitmproxy-ca-cert.pem" "$CA_CERT"
 
+# Wait for addon to reload rules from DB (migration runs in FastAPI lifespan,
+# addon reloads every 5s). Send a dummy proxy request to trigger reload.
+echo "=== Triggering addon rule reload ==="
+curl -s --proxy "http://localhost:$PROXY_PORT" --cacert "$CA_CERT" --max-time 5 "https://localhost:1/" > /dev/null 2>&1 || true
+sleep 6
+
+# Debug: show what rules are loaded
+echo "=== Rules in database ==="
+curl -s "http://localhost:$API_PORT/api/rules" | python3 -m json.tool 2>/dev/null || curl -s "http://localhost:$API_PORT/api/rules"
+echo ""
+
 PASS=0
 FAIL=0
 
