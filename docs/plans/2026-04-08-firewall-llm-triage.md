@@ -108,9 +108,7 @@ Devcontainer → HTTP(S) request
                         → zablokovat, vytvořit pending request pro developera
                         → developer schválí/zamítne přes dashboard
 
-    + Claude fast-track: POST /api/request {domain, reason}
-        → LLM evaluace s extra kontextem (reason)
-        → stejné 3 výstupy (approve/deny/escalate)
+    (Žádný fast-track API — vše jde přes mitmproxy interceptor)
 ```
 
 ### Přechod ze Squid na mitmproxy
@@ -168,27 +166,22 @@ Hlavní komponenta — Python addon pro mitmproxy, který implementuje veškerou
 2. Check static rules (rule engine, in-memory snapshot):
    a. Block rule match (domain/pattern) → deny (NEJVYŠŠÍ PRIORITA)
    b. Whitelist match (domain/pattern) → allow (skip body buffering)
-3. Body credential scan (regex):
-   → Skenovat prvních 64KB body na token/credential patterny
-   → Match → automatic deny bez LLM
-4. Check LLM cache (klíč: domain + method + path)
+3. Check LLM cache (klíč: domain + method + path)
    → hit → apply cached decision
    → POZOR: POST/PUT/PATCH s body se NIKDY neservírují z cache
-5. Deduplication check:
+4. Deduplication check:
    → Pokud už běží LLM evaluace pro stejný domain → čekat na výsledek (asyncio.Event)
-6. Concurrency gate (max 5 in-flight LLM calls, semaphore):
+5. Concurrency gate (max 5 in-flight LLM calls, semaphore):
    → Pokud plný → escalate (blokovat, pending request)
-7. Async LLM call (Azure OpenAI GPT-5.4-mini, reasoning_effort: none, timeout: 5s):
+6. Async LLM call (Azure OpenAI GPT-5.4-mini, reasoning_effort: none, timeout: 5s):
    → Send: domain, URL, method, headers, body (truncated ~4KB), project context
    → Receive: {decision: "approve"|"deny"|"escalate", reasoning: "..."}
    → Timeout/error → escalate (fallback)
-8. Apply decision:
+7. Apply decision:
    - approve → allow flow, cache result
    - deny → flow.response = HTTP 403, log
    - escalate → flow.response = HTTP 403 s instrukcemi, create pending request
 ```
-
-**Poznámka k body v LLM promptu:** Request body se posílá do LLM záměrně — je nutné pro detekci exfiltrace. Attacker může base64-encodovat, šifrovat nebo jinak obfuskovat credentials; regex to nikdy nechytí. LLM posoudí request jako celek (proč Python app posílá POST s binary payloadem na neznámý server?). Prompt injection mitigace je na úrovni Azure OpenAI platform.
 
 ### Rule engine — granulární pravidla
 
@@ -267,14 +260,6 @@ Respond with JSON: {"decision": "approve|deny|escalate", "reasoning": "..."}
 {"decision": "approve", "reasoning": "docs.python.org is the official Python documentation site, request is a GET for asyncio docs page"}
 ```
 
-**Response contract pro `POST /api/request` (Claude fast-track):**
-
-| LLM rozhodnutí | Response | Claude akce |
-|----------------|----------|-------------|
-| approve | `{"id": "...", "status": "approved", "llm_reasoning": "..."}` | Retry request — projde |
-| deny | `{"id": "...", "status": "denied", "llm_reasoning": "..."}` | Informovat uživatele |
-| escalate | `{"id": "...", "status": "pending", "llm_reasoning": "..."}` | Pollovat `GET /api/requests/{id}` jako dnes |
-
 **Error response (mitmproxy 403) pro deny/escalate:**
 
 Při deny/escalate mitmproxy vrátí HTTP 403 s JSON body:
@@ -283,9 +268,7 @@ Při deny/escalate mitmproxy vrátí HTTP 403 s JSON body:
   "blocked": true,
   "domain": "example.com",
   "decision": "escalate",
-  "reasoning": "Unknown domain, escalating to developer",
-  "request_url": "http://firewall:8080/api/request",
-  "hint": "Submit POST /api/request with {domain, reason} for fast-track evaluation"
+  "reasoning": "Unknown domain, escalating to developer"
 }
 ```
 
@@ -366,7 +349,7 @@ CREATE TABLE IF NOT EXISTS rules (
 CREATE INDEX idx_rules_domain ON rules(domain);
 ```
 
-**In-memory snapshot:** Pravidla se načtou do paměti při startu a při každé mutaci přes API (event-driven reload). `check_rules()` NIKDY nečte z DB na hot path — pracuje s in-memory snapshotem. Regex patterny se pre-kompilují při loadu pomocí `re2` (backtracking-safe). Délka regex patternů je omezena na 200 znaků.
+**In-memory snapshot:** Pravidla se načtou do paměti při startu a při každé mutaci přes API (event-driven reload). `check_rules()` NIKDY nečte z DB na hot path — pracuje s in-memory snapshotem. Regex patterny se pre-kompilují při loadu. Délka regex patternů je omezena na 200 znaků (developer je trusted, stačí length limit místo re2).
 
 #### Nová tabulka: `llm_decisions`
 
@@ -394,14 +377,9 @@ CREATE INDEX idx_decisions_review ON llm_decisions(review_status) WHERE review_s
 
 **Retention policy:** Při startu a pak každých 24h: `DELETE FROM llm_decisions WHERE timestamp < datetime('now', '-30 days')`. Maximum 100k řádků.
 
-#### Úprava tabulky `requests`
+#### Tabulka `requests`
 
-Přidání sloupce pro LLM rozhodnutí:
-
-```sql
-ALTER TABLE requests ADD COLUMN llm_decision TEXT;      -- approve|deny|escalate|NULL
-ALTER TABLE requests ADD COLUMN llm_reasoning TEXT;      -- LLM reasoning text
-```
+Stávající tabulka `requests` se **odstraní** — `POST /api/request` endpoint byl odstraněn. Escalated requests se ukládají do `llm_decisions` tabulky (s `decision = 'escalate'`).
 
 ### Změny v servisní vrstvě
 
@@ -439,31 +417,12 @@ def check_rules(domain: str, path: str, method: str) -> str | None:
     """Returns "allow"|"deny"|None (None = no rule matched, proceed to LLM)
     
     Works with in-memory snapshot, NEVER queries DB on hot path.
-    Regex patterns pre-compiled with re2 at load time.
+    Regex patterns pre-compiled at load time.
     """
 
 def load_rules() -> list[dict]:
     """Load all rules from DB into in-memory snapshot. Called at startup
     and on every rule mutation via API (event-driven reload)."""
-```
-
-#### Nový modul: `decision_cache.py`
-
-In-memory LRU cache pro LLM rozhodnutí s TTL. Max 10k entries.
-
-Signatury:
-
-```python
-def get_cached_decision(domain: str, method: str, path: str) -> dict | None:
-    """Returns cached LLM decision or None.
-    
-    Cache key: (domain, method, path).
-    POST/PUT/PATCH s body se NIKDY neservírují z cache — vždy re-evaluate.
-    Uses cachetools.TTLCache(maxsize=10000, ttl=3600).
-    """
-
-def cache_decision(domain: str, method: str, path: str, decision: dict):
-    """Cache an LLM decision. Only caches GET/HEAD/OPTIONS and deny decisions."""
 ```
 
 #### Nový modul: `firewall_addon.py`
@@ -472,6 +431,13 @@ mitmproxy addon — hlavní interceptor.
 
 ```python
 class FirewallAddon:
+    """Main interceptor. Contains:
+    - self._cache: cachetools.TTLCache(maxsize=10000, ttl=LLM_CACHE_TTL)
+    - self._rules: in-memory rule snapshot (reloaded on mutation)
+    - self._semaphore: asyncio.Semaphore(LLM_MAX_CONCURRENT)
+    - self._pending: dict[str, asyncio.Event] for deduplication
+    """
+
     async def request(self, flow: http.HTTPFlow) -> None:
         """Main hook — evaluates every request"""
 
@@ -484,45 +450,37 @@ class FirewallAddon:
 Nové API endpointy:
 
 ```python
-# === Veřejné (bez auth) — devcontainer k nim má přístup ===
-POST   /api/request            # Claude fast-track with reason → LLM evaluace
-GET    /api/requests/{id}      # Claude polls status
+# Všechny endpointy chráněné MANAGER_AUTH_TOKEN (Bearer token).
+# Devcontainer k API nepřistupuje — vše jde přes mitmproxy interceptor.
 
-# === Chráněné (MANAGER_AUTH_TOKEN) — jen developer/portal ===
 # Rules CRUD
 GET    /api/rules              # list all rules
 POST   /api/rules              # create rule (triggers in-memory reload)
 PUT    /api/rules/{id}         # update rule (triggers in-memory reload)
 DELETE /api/rules/{id}         # delete rule (triggers in-memory reload)
 
-# Request management
-GET    /api/requests            # list all requests
-POST   /api/requests/{id}/approve   # approve escalated request → creates allow rule
-POST   /api/requests/{id}/deny      # deny escalated request
+# Escalated requests
+GET    /api/escalated           # list pending escalated requests
+POST   /api/escalated/{id}/approve   # approve → creates allow rule
+POST   /api/escalated/{id}/deny      # deny
 
-# LLM decisions audit log
+# LLM decisions
 GET    /api/decisions           # list (paginated, default 50)
-GET    /api/decisions/stats     # aggregated stats
 GET    /api/decisions/pending-review  # auto-approved, pending developer review
 POST   /api/decisions/{id}/review     # mark as reviewed
 POST   /api/decisions/{id}/block      # mark as blocked → creates deny rule
-
-# Whitelist (legacy compatibility)
-GET    /api/whitelist           # current allow rules
-POST   /api/approve             # direct domain approve → creates allow rule
-DELETE /api/revoke              # remove allow rule
 
 # Dashboard
 GET    /                        # web dashboard (bez auth — read-only view)
 ```
 
-**Auth:** Management endpointy vyžadují `Authorization: Bearer <MANAGER_AUTH_TOKEN>` header. `POST /api/request` a `GET /api/requests/{id}` jsou bez auth (Claude k nim přistupuje z devcontaineru). Dashboard (`GET /`) je read-only bez auth.
+**Auth:** Všechny API endpointy vyžadují `Authorization: Bearer <MANAGER_AUTH_TOKEN>` header. Dashboard (`GET /`) je bez auth.
 
-**Osud existujících endpointů:**
-- `POST /api/approve` → zachován, vytvoří allow rule v rules tabulce (místo zápisu do whitelist souboru)
-- `DELETE /api/revoke` → zachován, smaže allow rule z rules tabulky
-- `GET /api/blocked` → **nahrazen** — blocked domény se berou z `llm_decisions` (decision=deny|escalate) místo parsování Squid logů
-- `GET /api/whitelist` → zachován, vrací allow rules z rules tabulky
+**Odstraněné endpointy (oproti současnému stavu):**
+- `POST /api/request` — odstraněn. Claude nepotřebuje fast-track API — vše jde přes mitmproxy interceptor.
+- `GET /api/requests/{id}` — odstraněn (nahrazen `/api/escalated`).
+- `POST /api/approve`, `DELETE /api/revoke`, `GET /api/whitelist` — odstraněny. Nahrazeny Rules CRUD.
+- `GET /api/blocked` — odstraněn. Blocked domény se berou z `llm_decisions`.
 
 #### Upravený modul: `database.py`
 
@@ -561,11 +519,10 @@ Nové environment variables:
 
 ### Nové soubory
 
-- `services/firewall/manager/firewall_addon.py` — mitmproxy addon, hlavní interceptor
+- `services/firewall/manager/firewall_addon.py` — mitmproxy addon, hlavní interceptor (obsahuje i in-memory cache jako atribut)
 - `services/firewall/manager/llm_evaluator.py` — Azure OpenAI klient, prompt construction
 - `services/firewall/manager/audit_logger.py` — JSONL append logger pro forenzní audit
 - `services/firewall/manager/rule_engine.py` — statická pravidla (whitelist/block)
-- `services/firewall/manager/decision_cache.py` — in-memory LLM decision cache
 
 ### Upravené soubory
 
@@ -575,9 +532,9 @@ Nové environment variables:
 - `services/firewall/manager/database.py:1-73` — nové tabulky (rules, llm_decisions), migrace requests tabulky
 - `services/firewall/manager/whitelist.py:1-38` — adaptace pro rule engine (whitelist se načítá z DB + default souboru)
 - `services/firewall/manager/templates/index.html:1-210` — nové sekce (rules, decisions, escalated requests)
-- `services/firewall/manager/requirements.txt:1-4` — přidání `mitmproxy`, `openai`, `cachetools`, `google-re2`
+- `services/firewall/manager/requirements.txt:1-4` — přidání `mitmproxy`, `openai`, `cachetools`
 - `services/firewall/whitelist-default.txt:1-25` — zachováno, importuje se do rules při prvním startu
-- `services/firewall/ERR_BLOCKED:1-15` — úprava textu (mitmproxy místo Squid)
+- `services/firewall/ERR_BLOCKED:1-15` — **odstraní se** (mitmproxy vrací JSON 403 přímo z addonu)
 - `services/firewall/README.md:1-36` — aktualizace dokumentace
 - `generator/src/templates/base/docker-compose.yml.ejs:57-73` — nové env vars (AZURE_OPENAI_*, PROJECT_CONTEXT, MANAGER_AUTH_TOKEN), sdílený volume pro CA cert
 - `generator/src/templates/base/init-firewall.sh.ejs:1-31` — přidání runtime instalace CA certifikátu + SSL env vars (NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, SSL_CERT_FILE, GIT_SSL_CAINFO)
@@ -622,7 +579,7 @@ Nahrazení Squid proxy za mitmproxy se zachováním stávající funkcionality (
 Přidání rule engine s podporou domain, URL pattern a HTTP method pravidel. Git push blokace. Auth na management API.
 
 - Nový modul `rule_engine.py` s in-memory snapshot (reload při mutaci)
-- Regex patterny pre-kompilované s `re2` (backtracking-safe), max 200 znaků
+- Regex patterny pre-kompilované, max 200 znaků
 - DB tabulka `rules` + migrace + indexy
 - Import `whitelist-default.txt` do rules při prvním startu (idempotentní)
 - Import `EXTRA_DOMAINS` env var do rules při startu (zachování zpětné kompatibility)
@@ -634,7 +591,7 @@ Přidání rule engine s podporou domain, URL pattern a HTTP method pravidel. Gi
 - Schválení escalated requestu developerem → automaticky vytvoří allow rule v rules tabulce
 - Očekávaný výsledek: granulární pravidla fungují, git push blokován, API chráněno tokenem
 - Závislosti: Fáze 1
-- [ ] Rule engine modul (in-memory, re2)
+- [ ] Rule engine modul (in-memory)
 - [ ] DB schema + migrace + indexy
 - [ ] Auth middleware (MANAGER_AUTH_TOKEN)
 - [ ] EXTRA_DOMAINS migrace do rules
@@ -643,61 +600,44 @@ Přidání rule engine s podporou domain, URL pattern a HTTP method pravidel. Gi
 - [ ] Git push blokace
 - [ ] Testy
 
-### Fáze 3: LLM evaluace + základní escalation UI
+### Fáze 3: LLM evaluace, escalation UI a audit
 
-Integrace Azure OpenAI API pro automatické vyhodnocování neznámých požadavků. Základní UI pro escalated requests.
+Integrace Azure OpenAI API pro automatické vyhodnocování neznámých požadavků. Dashboard pro escalated requests a review auto-approvals. Forenzní audit log.
 
 - Nový modul `llm_evaluator.py` s Azure OpenAI klientem (GPT-5.4-mini, reasoning_effort: none)
 - Timeout 5s, fallback na escalate
 - Concurrency gate: `asyncio.Semaphore(LLM_MAX_CONCURRENT)` (default 5)
 - Deduplication: `asyncio.Event` per domain — concurrent requests na stejný domain čekají na první evaluaci
+- In-memory LLM cache jako atribut na `FirewallAddon` (`cachetools.TTLCache(maxsize=10000)`), POST/PUT/PATCH s body nikdy z cache
 - Prompt design a testování
-- `decision_cache.py` — LRU cache s TTL (`cachetools.TTLCache(maxsize=10000)`), POST/PUT/PATCH s body nikdy z cache
 - DB tabulka `llm_decisions` pro audit trail + indexy + retention policy (30 dní)
-- Body credential scan (regex, prvních 64KB) jako krok před LLM — match → automatic deny
 - Integrace do `firewall_addon.py` — async LLM call v request hooku
-- Rozšíření `POST /api/request` o LLM pre-evaluaci (fast-track s reason) — nový response contract (viz výše)
-- Úprava requests tabulky (llm_decision, llm_reasoning sloupce)
-- **Escalated Requests UI v dashboardu** — developer musí mít možnost schválit/zamítnout escalated requests (bez toho je Fáze 3 neúplná)
-- Úprava ERR_BLOCKED → JSON 403 response s instrukcemi pro Claude
+- Odstranění `POST /api/request` a legacy endpointů — vše jde přes mitmproxy interceptor
+- Escalated requests UI v dashboardu (approve/deny)
+- Auto-approved review flow (pending review → reviewed / blocked)
+- JSONL audit logger na samostatném volume (`/audit`)
+- JSON 403 error responses z mitmproxy addonu
 - SQLite WAL mode pro concurrent access (mitmproxy addon + FastAPI manager)
-- Očekávaný výsledek: LLM automaticky vyhodnocuje neznámé requesty, developer řeší jen escalated
+- Očekávaný výsledek: LLM automaticky vyhodnocuje neznámé requesty, developer řeší jen escalated, forenzní log na volume
 - Závislosti: Fáze 1, Fáze 2
 - [ ] LLM evaluator modul (Azure OpenAI)
 - [ ] Concurrency gate + deduplication
-- [ ] Decision cache (LRU, TTL)
-- [ ] Body credential scan
+- [ ] In-memory cache (na FirewallAddon)
 - [ ] DB schema pro decisions + retention
 - [ ] Integrace do addon
-- [ ] Fast-track přes /api/request + nový response contract
 - [ ] Escalated requests UI v dashboardu
 - [ ] Auto-approved review flow (pending review → reviewed / blocked)
-- [ ] JSONL audit logger (append, každý request, body_sha256)
-- [ ] Audit volume v docker-compose template
+- [ ] JSONL audit logger + audit volume
 - [ ] JSON 403 error responses
+- [ ] Odstranění legacy endpointů
 - [ ] SQLite WAL mode
 - [ ] Prompt tuning
-
-### Fáze 4: Rozšířený dashboard a audit
-
-Rozšíření dashboardu o pokročilé filtrování, statistiky a vylepšený UX. Základní escalation UI je již ve Fázi 3.
-
-- LLM decisions audit log s filtrováním (domain, decision type, časové rozmezí)
-- API endpointy pro decisions (paginated list default 50, stats)
-- Statistiky: auto-approved, auto-denied, escalated za 24h/7d
-- Vyhledávání v decisions logu
-- Očekávaný výsledek: developer má plný přehled a analytiku o LLM rozhodnutích
-- Závislosti: Fáze 3
-- [ ] Decisions API endpointy (paginated)
-- [ ] Dashboard UI rozšíření (filtrování, vyhledávání)
-- [ ] Statistiky
-- [ ] Dokumentace
 
 ## Rizika a mitigace
 
 | Riziko | Dopad | Pravděpodobnost | Mitigace |
 |--------|-------|-----------------|----------|
-| LLM false positive (schválí exfiltraci) | Vysoký — únik dat | Nízká | Konzervativní prompt (při pochybách escalate), audit log, hardcoded block rules pro known patterns (git push), body credential scan |
+| LLM false positive (schválí exfiltraci) | Vysoký — únik dat | Nízká | Konzervativní prompt (při pochybách escalate), JSONL audit log pro forenzní dohledání, hardcoded block rules pro known patterns (git push), developer review flow pro auto-approvals |
 | LLM false negative (zablokuje legitimní request) | Střední — zpomalení práce | Střední | Escalate na developera (ne hard deny), developer může přidat allow rule |
 | LLM API latence (>5s) | Střední — zpomalení requestů | Nízká | Timeout 5s s fallback na escalate, cache pro opakované domény |
 | LLM API výpadek | Vysoký — proxy nefunguje | Nízká | Fallback: při nedostupnosti API → escalate vše (funguje jako dnes). Request je okamžitě blokován (403), NIKDY neprojde |
@@ -706,9 +646,9 @@ Rozšíření dashboardu o pokročilé filtrování, statistiky a vylepšený UX
 | npm install burst (20+ novel domains) | Střední — zpomalení | Střední | Concurrency cap (5 in-flight), deduplication per domain, pre-seed common CDN patterns v rules |
 | mitmproxy performance — velké downloady | Nízký | Nízká | Whitelisted domény skip body buffering (allow v rule engine → no body read). mitmproxy streaming mode pro velké responses |
 | Azure OpenAI náklady | Nízký | Nízká | Cache s 1h TTL, GPT-5.4-mini je levný, reasoning_effort: none |
-| Body truncation — LLM nevidí celý payload | Střední — může přehlédnout exfiltraci ve velké body | Nízká | Regex credential scan na prvních 64KB PŘED LLM. Pro velké body (>64KB): skip regex, spoléhat na domain/URL rules |
+| Body truncation — LLM nevidí celý payload | Střední — může přehlédnout exfiltraci ve velké body | Nízká | LLM vidí první ~4KB body + celý URL/headers kontext. Pro velké body spoléhat na domain/URL rules |
 | SQLite concurrent writes | Nízký — database is locked | Střední | WAL mode + retry logic. mitmproxy addon a FastAPI přistupují ke stejné DB |
-| ReDoS v path_pattern pravidlech | Střední — proxy hang | Nízká | `re2` engine (no backtracking), max 200 znaků, validace při insertu |
+| ReDoS v path_pattern pravidlech | Střední — proxy hang | Nízká | Max 200 znaků, developer je trusted (pravidla vytváří jen přes autorizované API) |
 
 ## Testování
 
@@ -765,8 +705,7 @@ grep -r "sk-ant-" services/firewall/
 - **Idempotence:** Rule engine pravidla a whitelist-default.txt se importují při prvním startu. Opakované restarty nesmí duplikovat pravidla (check existence before insert).
 - **Zpětná kompatibilita:** Port 3128 zůstává, HTTP_PROXY/HTTPS_PROXY env vars beze změn. Devcontainer nevyžaduje úpravy kromě CA certifikátu (runtime).
 - **EXTRA_DOMAINS migrace:** `EXTRA_DOMAINS` env var je zachována. Při startu se domény z ní importují do rules tabulky jako allow rules (stejně jako whitelist-default.txt). Existující docker-compose konfigurace funguje beze změn.
-- **Body scanning:** Regex credential scan na prvních 64KB body jako defense-in-depth. Match → automatic deny. Ale hlavní ochrana je LLM evaluace celého request kontextu — regex je triviálně obejitelný (base64, šifrování).
-- **Cache granularita:** Cache klíč je `(domain, method, path)`. POST/PUT/PATCH s body se NIKDY neservírují z cache — vždy se re-evaluují LLM. Toto zabraňuje cache poisoningu (GET schválí domain, pak POST s credentials projde z cache).
+- **Cache granularita:** Cache klíč je `(domain, method, path)`. POST/PUT/PATCH s body se NIKDY neservírují z cache — vždy se re-evaluují LLM. Toto zabraňuje cache poisoningu (GET schválí domain, pak POST s credentials projde z cache). Cache je atribut na `FirewallAddon` (`cachetools.TTLCache`), ne samostatný modul.
 - **LLM_ENABLED=false:** Při vypnutém LLM se systém chová jako vylepšený Squid — rule engine + escalate vše neznámé. Umožňuje deployment bez Azure API klíče.
 - **Migrace:** Stávající whitelist soubor se při prvním startu nové verze importuje do rules tabulky jako allow pravidla. Stávající requests v DB zůstávají.
 - **Azure API key distribuce:** Klíč jde do firewall kontejneru (ne devcontaineru). Devcontainer ho nevidí — nemůže ho exfiltrovat.
@@ -784,5 +723,4 @@ grep -r "sk-ant-" services/firewall/
 - [INNOQ — dev sandbox network isolation](https://www.innoq.com/en/blog/2026/03/dev-sandbox-network/)
 - [Claude Code sandboxing docs](https://code.claude.com/docs/en/sandboxing)
 - [Anthropic — secure deployment](https://platform.claude.com/docs/en/agent-sdk/secure-deployment)
-- [google-re2 — safe regex](https://github.com/google/re2)
 - Stávající implementace: `services/firewall/` v tomto repozitáři
