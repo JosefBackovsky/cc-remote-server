@@ -22,7 +22,7 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: |
-          pip install fastapi uvicorn aiosqlite jinja2
+          pip install fastapi uvicorn aiosqlite jinja2 httpx
       - name: Run unit tests
         working-directory: services/firewall/manager
         run: python -m unittest discover -p "test_*.py" -v
