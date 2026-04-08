@@ -2,6 +2,8 @@
 
 CLI tool for generating separate devcontainer repositories with pre-installed Claude Code.
 
+Based on [claude-devcontainer-generator](https://github.com/keeema/claude-devcontainer-generator) by [@keeema](https://github.com/keeema).
+
 ## Why?
 
 Development environment definitions don't belong in the project repo:
