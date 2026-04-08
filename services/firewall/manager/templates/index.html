@@ -49,14 +49,32 @@
     <h1>Firewall Manager Dashboard</h1>
     <div class="last-refresh">Last refresh: <span id="refresh-time">-</span></div>
 
-    <h2>Claude's Requests</h2>
-    <div id="requests-section"></div>
-
-    <h2 onclick="toggleBlocked()">Blocked Domains <span class="toggle" id="blocked-toggle">[show]</span></h2>
-    <div id="blocked-section" class="section-collapsed"></div>
-
-    <h2 onclick="toggleWhitelist()">Current Whitelist <span class="toggle" id="whitelist-toggle">[show]</span></h2>
-    <div id="whitelist-section" class="section-collapsed"></div>
+    <h2>Rules</h2>
+    <div id="add-rule-form" style="margin-bottom: 20px; padding: 15px; background: var(--surface); border-radius: 6px; box-shadow: 0 1px 3px var(--shadow);">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: end;">
+            <div>
+                <label style="font-size: 0.8em; color: var(--text-muted);">Domain</label><br>
+                <input id="rule-domain" placeholder="example.com" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text);">
+            </div>
+            <div>
+                <label style="font-size: 0.8em; color: var(--text-muted);">Action</label><br>
+                <select id="rule-action" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text);">
+                    <option value="allow">Allow</option>
+                    <option value="deny">Deny</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-size: 0.8em; color: var(--text-muted);">Path Pattern (optional)</label><br>
+                <input id="rule-pattern" placeholder=".*/git-receive-pack$" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text);">
+            </div>
+            <div>
+                <label style="font-size: 0.8em; color: var(--text-muted);">Description (optional)</label><br>
+                <input id="rule-description" placeholder="Why this rule exists" style="padding: 5px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text);">
+            </div>
+            <button class="btn-approve" onclick="addRule()">Add Rule</button>
+        </div>
+    </div>
+    <div id="rules-section"></div>
 
     <script>
         const API = '';
@@ -66,123 +84,63 @@
             return res.json();
         }
 
-        async function loadRequests() {
-            const data = await fetchJSON('/api/requests');
-            const el = document.getElementById('requests-section');
+        async function loadRules() {
+            const data = await fetchJSON('/api/rules');
+            const el = document.getElementById('rules-section');
             if (data.length === 0) {
-                el.innerHTML = '<div class="empty">No requests from Claude yet.</div>';
+                el.innerHTML = '<div class="empty">No rules configured.</div>';
                 return;
             }
-            let html = '<table><tr><th>Domain</th><th>Reason</th><th>Status</th><th>Time</th><th>Actions</th></tr>';
+            let html = '<table><tr><th>Domain</th><th>Pattern</th><th>Action</th><th>Description</th><th>Actions</th></tr>';
             for (const r of data) {
-                const time = new Date(r.created_at).toLocaleString();
-                let actions = '';
-                if (r.status === 'pending') {
-                    actions = `<button class="btn-approve" onclick="approveReq('${r.id}')">Approve</button>` +
-                              `<button class="btn-deny" onclick="denyReq('${r.id}')">Deny</button>`;
-                }
+                const pattern = r.path_pattern || r.path_prefix || '(all paths)';
+                const actionClass = r.action === 'deny' ? 'status-denied' : 'status-approved';
                 html += `<tr>
                     <td><b>${esc(r.domain)}</b></td>
-                    <td class="reason">${esc(r.reason)}</td>
-                    <td class="status-${r.status}">${r.status}</td>
-                    <td>${time}</td>
-                    <td>${actions}</td>
+                    <td>${esc(pattern)}</td>
+                    <td class="${actionClass}">${r.action}</td>
+                    <td>${esc(r.description || '')}</td>
+                    <td><button class="btn-deny" onclick="deleteRule('${r.id}')">Delete</button></td>
                 </tr>`;
             }
             html += '</table>';
             el.innerHTML = html;
         }
 
-        async function loadBlocked() {
-            const data = await fetchJSON('/api/blocked');
-            const el = document.getElementById('blocked-section');
-            if (data.length === 0) {
-                el.innerHTML = '<div class="empty">No blocked domains.</div>';
-                return;
-            }
-            let html = '<table><tr><th>Domain</th><th>Blocked Count</th><th>Last Seen</th><th>Actions</th></tr>';
-            for (const b of data) {
-                const time = new Date(b.last_seen).toLocaleString();
-                html += `<tr>
-                    <td><b>${esc(b.domain)}</b></td>
-                    <td class="count">${b.count}</td>
-                    <td>${time}</td>
-                    <td><button class="btn-approve" onclick="approveDirect('${esc(b.domain)}')">Approve</button></td>
-                </tr>`;
-            }
-            html += '</table>';
-            el.innerHTML = html;
-        }
-
-        async function loadWhitelist() {
-            const data = await fetchJSON('/api/whitelist');
-            const el = document.getElementById('whitelist-section');
-            if (data.length === 0) {
-                el.innerHTML = '<div class="empty">Whitelist is empty.</div>';
-                return;
-            }
-            let html = '<table><tr><th>Domain</th><th>Actions</th></tr>';
-            for (const d of data) {
-                html += `<tr>
-                    <td>${esc(d)}</td>
-                    <td><button class="btn-revoke" onclick="revokeDomain('${esc(d)}')">Revoke</button></td>
-                </tr>`;
-            }
-            html += '</table>';
-            el.innerHTML = html;
-        }
-
-        async function approveReq(id) {
-            await fetchJSON(`/api/requests/${id}/approve`, { method: 'POST' });
-            refresh();
-        }
-
-        async function denyReq(id) {
-            await fetchJSON(`/api/requests/${id}/deny`, { method: 'POST' });
-            refresh();
-        }
-
-        async function approveDirect(domain) {
-            await fetchJSON('/api/approve', {
+        async function addRule() {
+            const domain = document.getElementById('rule-domain').value.trim();
+            const action = document.getElementById('rule-action').value;
+            const pathPattern = document.getElementById('rule-pattern').value.trim();
+            const description = document.getElementById('rule-description').value.trim();
+            if (!domain) return;
+            const body = { domain, action };
+            if (pathPattern) body.path_pattern = pathPattern;
+            if (description) body.description = description;
+            await fetchJSON('/api/rules', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ domain })
+                body: JSON.stringify(body)
             });
+            document.getElementById('rule-domain').value = '';
+            document.getElementById('rule-pattern').value = '';
+            document.getElementById('rule-description').value = '';
             refresh();
         }
 
-        async function revokeDomain(domain) {
-            await fetchJSON('/api/revoke', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ domain })
-            });
+        async function deleteRule(id) {
+            await fetchJSON(`/api/rules/${id}`, { method: 'DELETE' });
             refresh();
         }
 
-        function toggleBlocked() {
-            const el = document.getElementById('blocked-section');
-            const toggle = document.getElementById('blocked-toggle');
-            el.classList.toggle('section-collapsed');
-            toggle.textContent = el.classList.contains('section-collapsed') ? '[show]' : '[hide]';
-        }
-
-        function toggleWhitelist() {
-            const el = document.getElementById('whitelist-section');
-            const toggle = document.getElementById('whitelist-toggle');
-            el.classList.toggle('section-collapsed');
-            toggle.textContent = el.classList.contains('section-collapsed') ? '[show]' : '[hide]';
+        async function refresh() {
+            await loadRules();
+            document.getElementById('refresh-time').textContent = new Date().toLocaleTimeString();
         }
 
         function esc(s) {
             const d = document.createElement('div');
             d.textContent = s;
             return d.innerHTML;
-        }
-
-        async function refresh() {
-            await Promise.all([loadRequests(), loadBlocked(), loadWhitelist()]);
-            document.getElementById('refresh-time').textContent = new Date().toLocaleTimeString();
         }
 
         // Theme
