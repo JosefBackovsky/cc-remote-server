@@ -1,15 +1,15 @@
 # Firewall — TODO
 
-## Firewall Manager — automatické schvalování přes LLM
+## Firewall Manager — automatic approval via LLM
 
-Aktuálně developer musí ručně schvalovat každou žádost o přístup k doméně. Přidat auto-approval vrstvu, kde LLM (Sonnet 4.6) vyhodnotí žádost a automaticky schválí/zamítne na základě kontextu.
+Currently the developer must manually approve every domain access request. Add an auto-approval layer where an LLM (Sonnet 4.6) evaluates requests and automatically approves/denies based on context.
 
-LLM posoudí:
-- Zda doména dává smysl pro uvedený důvod (např. `docs.python.org` pro "need asyncio docs" → OK)
-- Zda nehrozí exfiltrace citlivých dat (např. požadavek na neznámý webhook endpoint → zamítnout)
-- Zda doména není podezřelá (typosquatting, known malicious)
+The LLM evaluates:
+- Whether the domain makes sense for the stated reason (e.g. `docs.python.org` for "need asyncio docs" → OK)
+- Whether there's a risk of sensitive data exfiltration (e.g. request for an unknown webhook endpoint → deny)
+- Whether the domain is suspicious (typosquatting, known malicious)
 
-- [ ] Navrhnout prompt pro vyhodnocování žádostí (doména + reason + kontext projektu)
-- [ ] Integrace s Claude API (Sonnet 4.6) ve Firewall Manageru
-- [ ] Definovat politiku: auto-approve / auto-deny / escalate na developera
-- [ ] Logging rozhodnutí LLM pro audit trail
+- [ ] Design prompt for evaluating requests (domain + reason + project context)
+- [ ] Integrate Claude API (Sonnet 4.6) into Firewall Manager
+- [ ] Define policy: auto-approve / auto-deny / escalate to developer
+- [ ] Log LLM decisions for audit trail

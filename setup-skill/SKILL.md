@@ -6,8 +6,8 @@ description: >
   to the cc-remote server, configuring remote development, or asks how to run a project
   with Claude Code on a remote server. Also trigger when the user has cloned repos into
   a project directory and wants to know how to develop them remotely. Use this skill even
-  if the user just asks "how do I add this project to cc-remote" or "chci devcontainer
-  pro tento projekt" — don't wait for explicit invocation.
+  if the user just asks "how do I add this project to cc-remote" or "I want a devcontainer
+  for this project" — don't wait for explicit invocation.
 ---
 
 # CC-Remote: New Project Setup

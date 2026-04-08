@@ -1,270 +1,270 @@
 # DevContainer Generator
 
-CLI nástroj pro generování oddělených devcontainer repozitářů s předinstalovaným Claude Code.
+CLI tool for generating separate devcontainer repositories with pre-installed Claude Code.
 
-## Proč?
+## Why?
 
-Definice vývojového prostředí nepatří do projektového repa:
-- Dev prostředí (`.devcontainer/`, `.claude/`) nechceš verzovat v projektu
-- Každý vývojář nebo tým může mít jiný setup
-- Projektové repo zůstane čisté — žádné IDE/tooling soubory
-- Snadná reprodukovatelnost prostředí na jiném stroji
+Development environment definitions don't belong in the project repo:
+- Dev environments (`.devcontainer/`, `.claude/`) shouldn't be versioned in the project
+- Each developer or team may have a different setup
+- The project repo stays clean — no IDE/tooling files
+- Easy reproducibility on another machine
 
-Řešení: vygeneruj si **oddělené devcontainer repo**, které žije vedle projektového repa. Projekt zůstane čistý — žádné `.devcontainer/`, žádné `.claude/`.
+Solution: generate a **separate devcontainer repo** that lives alongside the project repo. The project stays clean — no `.devcontainer/`, no `.claude/`.
 
-## Předpoklady
+## Prerequisites
 
 - Node.js 20+
-- Docker Desktop (nebo Docker Engine)
-- VS Code s rozšířením [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+- Docker Desktop (or Docker Engine)
+- VS Code with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
 
-## Rychlý start
+## Quick Start
 
-### 1. Nainstaluj závislosti
+### 1. Install dependencies
 
 ```bash
 npm install
 ```
 
-### 2. Vygeneruj devcontainer
+### 2. Generate devcontainer
 
 ```bash
 node src/cli.js \
-  --repo git@github.com:firma/mujprojekt.git \
+  --repo git@github.com:company/myproject.git \
   --stack nodejs \
   --services postgres \
-  --output ~/projects/mujprojekt-devcontainer
+  --output ~/projects/myproject-devcontainer
 ```
 
-### 3. Otevři ve VS Code
+### 3. Open in VS Code
 
 ```bash
-cd ~/projects/mujprojekt-devcontainer
+cd ~/projects/myproject-devcontainer
 code .
 ```
 
-VS Code detekuje `.devcontainer/` a nabídne **"Reopen in Container"** (nebo přes Command Palette → `Dev Containers: Reopen in Container`).
+VS Code detects `.devcontainer/` and offers **"Reopen in Container"** (or via Command Palette → `Dev Containers: Reopen in Container`).
 
-Při prvním spuštění se automaticky:
-1. Naklonuje projektové repo vedle devcontaineru
-2. Vytvoří sdílený Docker volume `claude-credentials` (pokud neexistuje)
-3. Postaví Docker image s vývojářskými nástroji a Claude Code
-4. Spustí kontejner a Claude Code nastartuje v tmux session
+On first run, it automatically:
+1. Clones the project repo next to the devcontainer
+2. Creates the shared Docker volume `claude-credentials` (if it doesn't exist)
+3. Builds the Docker image with dev tools and Claude Code
+4. Starts the container and launches Claude Code in a tmux session
 
-### 4. Připoj se ke Claude Code
+### 4. Connect to Claude Code
 
-V kontejneru běží Claude Code automaticky v tmux session. Otevři terminál ve VS Code a připoj se:
+Claude Code runs automatically in a tmux session inside the container. Open a terminal in VS Code and connect:
 
 ```bash
 tmux attach -t claude
 ```
 
-Při prvním spuštění bude Claude čekat na OAuth přihlášení. Po přihlášení se credentials uloží do sdíleného volume a příště se Claude spustí automaticky.
+On first run, Claude will wait for OAuth login. After login, credentials are saved to the shared volume and Claude starts automatically next time.
 
-> **Tip:** Devcontainer obsahuje i VS Code extension `anthropic.claude-code`, takže Claude Code můžeš použít i přímo ve VS Code.
+> **Tip:** The devcontainer also includes the VS Code extension `anthropic.claude-code`, so you can use Claude Code directly in VS Code.
 
-### 5. Odpojení
+### 5. Disconnect
 
 ```bash
-# Ctrl+B, pak D — odpojí se od tmux, Claude dál pracuje
+# Ctrl+B, then D — detaches from tmux, Claude keeps working
 ```
 
-Můžeš zavřít VS Code a Claude pracuje dál. Při dalším otevření se jen znovu připojíš přes `tmux attach -t claude`.
+You can close VS Code and Claude keeps working. Next time, just reconnect via `tmux attach -t claude`.
 
-## Jak to funguje
+## How It Works
 
 ### Single-repo
 
 ```
 ~/projects/
-  ├── mujprojekt-devcontainer/     ← vygenerované devcontainer repo
+  ├── myproject-devcontainer/     ← generated devcontainer repo
   │   ├── .devcontainer/
-  │   │   ├── devcontainer.json    ← konfigurace VS Code, extensions, env
-  │   │   ├── docker-compose.yml   ← app + služby, volumes, networking
-  │   │   ├── Dockerfile           ← base image, nástroje, Claude Code
-  │   │   ├── init-firewall.sh     ← iptables whitelist (pokud není --full-internet)
-  │   │   └── init.sh              ← klonuje projektové repo, vytvoří volumes
-  │   └── project.yml              ← metadata projektu (repo URL, branch)
-  └── mujprojekt/                  ← projektové repo (naklonované automaticky)
+  │   │   ├── devcontainer.json   ← VS Code config, extensions, env
+  │   │   ├── docker-compose.yml  ← app + services, volumes, networking
+  │   │   ├── Dockerfile          ← base image, tools, Claude Code
+  │   │   ├── init-firewall.sh    ← iptables whitelist (unless --full-internet)
+  │   │   └── init.sh             ← clones project repo if not present
+  │   └── project.yml             ← project metadata (repo URL, branch)
+  └── myproject/                  ← project repo (cloned automatically)
 ```
 
 ### Multi-repo
 
 ```
 ~/projects/
-  ├── mujprojekt-devcontainer/     ← vygenerované devcontainer repo
+  ├── myproject-devcontainer/     ← generated devcontainer repo
   │   ├── .devcontainer/
   │   │   └── ...
-  │   └── project.yml              ← metadata projektu (seznam repozitářů)
-  └── mujprojekt/                  ← workspace adresář
-      ├── backend/                 ← první repo (naklonované automaticky)
-      └── frontend/                ← druhý repo (naklonované automaticky)
+  │   └── project.yml             ← project metadata (list of repos)
+  └── myproject/                  ← workspace directory
+      ├── backend/                ← first repo (cloned automatically)
+      └── frontend/               ← second repo (cloned automatically)
 ```
 
-Každý repo se mountuje jako `/workspace/<repoName>/` uvnitř kontejneru.
+Each repo is mounted as `/workspace/<repoName>/` inside the container.
 
-### Tři vrstvy dat
+### Three data layers
 
-| Volume | Mount | Účel | Sdílení |
-|--------|-------|------|---------|
-| `claude-credentials` | `/home/node/.claude` | OAuth tokeny, globální nastavení | Across všechny projekty |
-| `<nazev>-claude-project` | `/workspace/.claude` | CLAUDE.md, projektové nastavení | Per projekt |
-| `<nazev>-commandhistory` | `/commandhistory` | Bash/zsh historie | Per projekt |
-| Bind mount | `/workspace` | Zdrojový kód projektu | — |
+| Volume | Mount | Purpose | Sharing |
+|--------|-------|---------|---------|
+| `claude-credentials` | `/home/node/.claude` | OAuth tokens, global settings | Across all projects |
+| `<name>-claude-project` | `/workspace/.claude` | CLAUDE.md, project settings | Per project |
+| `<name>-commandhistory` | `/commandhistory` | Bash/zsh history | Per project |
+| Bind mount | `/workspace` | Project source code | — |
 
-Všechny volumes přežijí rebuild kontejneru. `claude-credentials` se vytvoří automaticky při prvním spuštění.
+All volumes survive container rebuilds. `claude-credentials` is created automatically on first run.
 
-## CLI parametry
+## CLI Parameters
 
-| Parametr | Povinný | Default | Popis |
-|----------|---------|---------|-------|
-| `--repo` | ano | — | Git URL repa (opakovatelný, viz [Multi-repo](#multi-repo)). Per-repo branch: `--repo url#branch` |
-| `--output` | ano | — | Cílový adresář pro vygenerovaný devcontainer |
-| `--name` | ne | z repo URL | Název projektu (odvozen automaticky z URL). Povinný při multi-repo |
-| `--branch` | ne | `main` | Git branch (globální default, per-repo `#branch` má přednost) |
-| `--stack` | ne | `nodejs` | SDK/runtime (`nodejs`, `python`, `dotnet`) |
-| `--services` | ne | — | Služby oddělené čárkou (`postgres`, `redis`, `mongo`, `azurite`) |
-| `--full-internet` | ne | `false` | Vypne firewall — plný přístup k internetu |
-| `--include-compose` | ne | `false` | Zahrne projektový `docker-compose.yml` přes Docker Compose `include` (jen single-repo) |
-| `--local-claude` | ne | `false` | Mountne `.claude` z devcontainer repa místo Docker volume |
-| `--ssh-port` | ne | `2222` | SSH port pro přístup z JetBrains IDE (PyCharm Gateway apod.) |
-| `--port-prefix` | ne | — | Prefix portů (např. `82` → SSH `8222`, firewall `8280`). Má přednost před `--ssh-port` |
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `--repo` | yes | — | Git repo URL (repeatable, see [Multi-repo](#multi-repo)). Per-repo branch: `--repo url#branch` |
+| `--output` | yes | — | Target directory for the generated devcontainer |
+| `--name` | no | from repo URL | Project name (auto-derived from URL). Required for multi-repo |
+| `--branch` | no | `main` | Git branch (global default, per-repo `#branch` takes precedence) |
+| `--stack` | no | `nodejs` | SDK/runtime (`nodejs`, `python`, `dotnet`) |
+| `--services` | no | — | Comma-separated services (`postgres`, `redis`, `mongo`, `azurite`) |
+| `--full-internet` | no | `false` | Disable firewall — full internet access |
+| `--include-compose` | no | `false` | Include project's `docker-compose.yml` via Docker Compose `include` (single-repo only) |
+| `--local-claude` | no | `false` | Mount `.claude` from devcontainer repo instead of Docker volume |
+| `--ssh-port` | no | `2222` | SSH port for JetBrains IDE access (PyCharm Gateway etc.) |
+| `--port-prefix` | no | — | Port prefix (e.g. `82` → SSH `8222`, firewall `8280`). Takes precedence over `--ssh-port` |
 
-## Stacky (SDK/runtime)
+## Stacks (SDK/runtime)
 
-| Stack | Base image | Popis |
-|-------|-----------|-------|
+| Stack | Base image | Description |
+|-------|-----------|-------------|
 | `nodejs` | `node:22` | Node.js LTS |
 | `python` | `python:3.12` | Python 3.12 |
 | `dotnet` | `mcr.microsoft.com/dotnet/sdk:9.0` | .NET 9 |
 
-Každý stack automaticky nainstaluje Claude Code (vyžaduje Node.js — u non-Node stacků se doinstaluje automaticky).
+Each stack automatically installs Claude Code (requires Node.js — for non-Node stacks it's installed automatically).
 
-## Služby
+## Services
 
-Libovolná kombinace přes `--services postgres,redis,mongo,azurite`:
+Any combination via `--services postgres,redis,mongo,azurite`:
 
-| Služba | Image | Port |
-|--------|-------|------|
+| Service | Image | Port |
+|---------|-------|------|
 | `postgres` | `postgres:17` | 5432 |
 | `mongo` | `mongo:7` | 27017 |
 | `redis` | `redis:7` | 6379 |
 | `azurite` | Azure Storage Emulator | 10000-10002 |
 
-## Příklady
+## Examples
 
-### Node.js projekt s PostgreSQL a Redis
+### Node.js project with PostgreSQL and Redis
 
 ```bash
 node src/cli.js \
-  --repo git@github.com:firma/eshop.git \
+  --repo git@github.com:company/eshop.git \
   --stack nodejs \
   --services postgres,redis \
   --output ~/projects/eshop-devcontainer
 ```
 
-### .NET projekt s plným internetem a projektovým docker-compose
+### .NET project with full internet and project docker-compose
 
 ```bash
 node src/cli.js \
-  --repo git@github.com:firma/erp.git \
+  --repo git@github.com:company/erp.git \
   --stack dotnet \
   --full-internet \
   --include-compose \
   --output ~/projects/erp-devcontainer
 ```
 
-### Python projekt bez služeb
+### Python project without services
 
 ```bash
 node src/cli.js \
-  --repo git@github.com:firma/ml-pipeline.git \
+  --repo git@github.com:company/ml-pipeline.git \
   --stack python \
   --output ~/projects/ml-pipeline-devcontainer
 ```
 
-### Multi-repo projekt s port prefixem
+### Multi-repo project with port prefix
 
 ```bash
 node src/cli.js \
-  --repo https://github.com/firma/backend.git \
-  --repo https://github.com/firma/frontend.git#develop \
-  --name mujprojekt \
+  --repo https://github.com/company/backend.git \
+  --repo https://github.com/company/frontend.git#develop \
+  --name myproject \
   --stack python \
   --services postgres \
   --port-prefix 82 \
-  --output ~/projects/mujprojekt-devcontainer
+  --output ~/projects/myproject-devcontainer
 ```
 
 ## Multi-repo
 
-Generátor podporuje více repozitářů v jednom devcontaineru — opakuj `--repo`:
+The generator supports multiple repositories in a single devcontainer — repeat `--repo`:
 
 ```bash
 node src/cli.js \
-  --repo https://github.com/firma/backend.git \
-  --repo https://github.com/firma/frontend.git#develop \
-  --name mujprojekt \
+  --repo https://github.com/company/backend.git \
+  --repo https://github.com/company/frontend.git#develop \
+  --name myproject \
   --stack nodejs \
-  --output ~/projects/mujprojekt-devcontainer
+  --output ~/projects/myproject-devcontainer
 ```
 
-- `--name` je **povinný** při více repech (nelze odvodit z URL)
-- Per-repo branch se specifikuje přes `#branch` suffix (např. `url#develop`), jinak se použije globální `--branch`
-- Každý repo musí mít unikátní název (basename z URL)
+- `--name` is **required** with multiple repos (cannot be derived from URL)
+- Per-repo branch is specified via `#branch` suffix (e.g. `url#develop`), otherwise the global `--branch` is used
+- Each repo must have a unique name (basename from URL)
 - Workspace layout: `/workspace/backend/`, `/workspace/frontend/`
-- `--include-compose` v multi-repo režimu neincluduje automaticky — po generování se vypíše warning s cestami ke compose souborům
+- `--include-compose` in multi-repo mode doesn't auto-include — a warning with compose file paths is printed after generation
 
 ## Port prefix
 
-Pro projekty běžící na vzdáleném serveru je užitečné mít porty v určitém rozsahu:
+Useful for projects running on a remote server to keep ports in a specific range:
 
 ```bash
 --port-prefix 82   # → SSH 8222:22, firewall 8280:8080
 --port-prefix 83   # → SSH 8322:22, firewall 8380:8080
 ```
 
-Bez `--port-prefix` se použijí defaulty (SSH `2222`, firewall `8180`). `--port-prefix` má přednost před `--ssh-port`.
+Without `--port-prefix`, defaults are used (SSH `2222`, firewall `8180`). `--port-prefix` takes precedence over `--ssh-port`.
 
 ## Firewall
 
-Ve výchozím stavu kontejner povoluje jen:
+By default, the container only allows:
 - **Claude API** — `api.anthropic.com`, `statsig.anthropic.com`, `sentry.io`
 - **Git** — `github.com`, `gitlab.com`
 - **Package managers** — npm, yarn, pip, nuget
-- **DNS a SSH**
+- **DNS and SSH**
 
-Vše ostatní je blokováno přes iptables (kontejner má `NET_ADMIN` capability). Pro plný přístup k internetu použij `--full-internet` — firewall se vůbec nevytvoří.
+Everything else is blocked via iptables (the container has `NET_ADMIN` capability). For full internet access use `--full-internet` — no firewall is created.
 
-### Blokování git push pro Claude Code
+### Blocking git push for Claude Code
 
-Pokud chceš aby Claude Code nemohl pushovat do vzdáleného repozitáře (např. při `--dangerously-skip-permissions`), odeber git remote domény z `init-firewall.sh`. Claude běží jako neprivilegovaný uživatel `node` a nemá sudo přístup k iptables — firewall nemůže obejít.
+If you want to prevent Claude Code from pushing to the remote repository (e.g. with `--dangerously-skip-permissions`), remove git remote domains from `init-firewall.sh`. Claude runs as unprivileged user `node` without sudo access to iptables — the firewall cannot be bypassed.
 
 ```bash
-# V init-firewall.sh odeber/zakomentuj domény git remote:
+# In init-firewall.sh, remove/comment out git remote domains:
 # dev.azure.com
 # ssh.dev.azure.com
-# github.com  (pokud je to tvůj remote)
+# github.com  (if that's your remote)
 ```
 
-Claude může normálně commitovat a vytvářet větve — workspace je bind mount z hostu. Ty pak pushuješ z hostitelského stroje:
+Claude can still commit and create branches — the workspace is a bind mount from the host. You push from the host machine:
 
 ```bash
-# Na hostu (mimo kontejner)
-cd ~/projects/mujprojekt
-git log     # vidíš commity vytvořené Claudem
-git push    # pushuješ ty
+# On the host (outside the container)
+cd ~/projects/myproject
+git log     # see commits made by Claude
+git push    # you push
 ```
 
-> **Pozn.:** Bez přístupu k git remote nemůže Claude ani `git pull`/`git fetch`. Před zahájením session udělej `git pull` na hostu.
+> **Note:** Without access to the git remote, Claude can't `git pull`/`git fetch` either. Do `git pull` on the host before starting a session.
 
-## Přístup k portům (VS Code Remote + Docker Compose)
+## Port access (VS Code Remote + Docker Compose)
 
-Při práci přes VS Code Remote SSH + Dev Containers existují **dva typy portů** s různým způsobem přístupu:
+When working via VS Code Remote SSH + Dev Containers, there are **two types of ports** with different access methods:
 
-### Porty uvnitř devcontaineru (VS Code forwardPorts)
+### Ports inside the devcontainer (VS Code forwardPorts)
 
-Porty aplikací, které **spouštíš uvnitř devcontaineru** (tvůj backend, frontend atd.). Tyto VS Code umí forwardovat automaticky přes `forwardPorts` v `devcontainer.json`:
+Ports of applications **running inside the devcontainer** (your backend, frontend, etc.). VS Code can forward these automatically via `forwardPorts` in `devcontainer.json`:
 
 ```json
 "forwardPorts": [8001, 8002, 4321],
@@ -273,67 +273,67 @@ Porty aplikací, které **spouštíš uvnitř devcontaineru** (tvůj backend, fr
 }
 ```
 
-→ Přístup přes **localhost:8001** ve VS Code.
+→ Access via **localhost:8001** in VS Code.
 
-### Porty sibling kontejnerů (přímý přístup přes síť)
+### Sibling container ports (direct network access)
 
-Porty ostatních Docker Compose services (databáze, Langfuse, Squid, approval-app atd.) jsou mapované na **Docker hostu**, ne uvnitř devcontaineru. VS Code `forwardPorts` na ně **nefunguje**.
+Ports of other Docker Compose services (databases, Langfuse, Squid, approval-app, etc.) are mapped on the **Docker host**, not inside the devcontainer. VS Code `forwardPorts` **does not work** for these.
 
-Přístup závisí na síťové konfiguraci:
+Access depends on network configuration:
 
-- **Tailscale / LAN:** `http://<hostname>:<port>` přímo z prohlížeče
-- **SSH tunel:** `ssh -L <port>:localhost:<port> <host>` → `localhost:<port>`
-- **Portainer:** webové UI pro správu kontejnerů na `https://<hostname>:9443`
+- **Tailscale / LAN:** `http://<hostname>:<port>` directly from the browser
+- **SSH tunnel:** `ssh -L <port>:localhost:<port> <host>` → `localhost:<port>`
+- **Portainer:** web UI for container management at `https://<hostname>:9443`
 
-Příklad — wiki-chatbot na Tailscale:
+Example — wiki-chatbot on Tailscale:
 
-| Služba | Port | Přístup |
-|--------|------|---------|
+| Service | Port | Access |
+|---------|------|--------|
 | Langfuse web | 8100 | `http://<tailscale-hostname>:8100` |
 | PostgreSQL | 8132 | `<tailscale-hostname>:8132` |
 | Proxy approval | 8180 | `http://<tailscale-hostname>:8180` |
 | Portainer | 9443 | `https://<tailscale-hostname>:9443` |
 
-> **Pravidlo:** Do `forwardPorts` dávej jen porty které **běží uvnitř devcontaineru**. Porty sibling services tam nedávej — nebudou fungovat.
+> **Rule:** Only add ports that **run inside the devcontainer** to `forwardPorts`. Don't add sibling service ports — they won't work.
 
-## Práce s Claude Code
+## Working with Claude Code
 
 ### Tmux session
 
-Claude Code se automaticky spustí v tmux session při startu kontejneru:
+Claude Code starts automatically in a tmux session when the container starts:
 
 ```bash
-# Připojení
+# Connect
 tmux attach -t claude
 
-# Odpojení (Claude dál pracuje)
-Ctrl+B, pak D
+# Disconnect (Claude keeps working)
+Ctrl+B, then D
 
-# Z jiného stroje přes SSH
-docker exec -it <kontejner> bash
+# From another machine via SSH
+docker exec -it <container> bash
 tmux attach -t claude
 ```
 
-### Typický workflow
+### Typical workflow
 
-1. **Ráno:** VS Code → "Reopen in Container" → terminál → `tmux attach -t claude`
-2. **Přes den:** zadáváš úkoly, sleduješ výstup
-3. **Odcházíš:** `Ctrl+B, D` — Claude pracuje dál, můžeš zavřít VS Code
-4. **Z telefonu:** SSH na stroj → `docker exec -it <kontejner> bash` → `tmux attach -t claude`
-5. **Další den:** VS Code znovu → `tmux attach -t claude` → Claude má hotovo
+1. **Morning:** VS Code → "Reopen in Container" → terminal → `tmux attach -t claude`
+2. **During the day:** assign tasks, watch output
+3. **Leaving:** `Ctrl+B, D` — Claude keeps working, you can close VS Code
+4. **From phone:** SSH to host → `docker exec -it <container> bash` → `tmux attach -t claude`
+5. **Next day:** VS Code again → `tmux attach -t claude` → Claude is done
 
-### Projektové instrukce (CLAUDE.md)
+### Project instructions (CLAUDE.md)
 
-Volume `<nazev>-claude-project` se mountuje na `/workspace/.claude`. Vytvoř v něm `CLAUDE.md` s projektovými instrukcemi:
+Volume `<name>-claude-project` is mounted at `/workspace/.claude`. Create a `CLAUDE.md` with project instructions:
 
 ```bash
-# Uvnitř kontejneru
-echo "# Projektové instrukce" > /workspace/.claude/CLAUDE.md
+# Inside the container
+echo "# Project instructions" > /workspace/.claude/CLAUDE.md
 ```
 
-Soubor přežije rebuild kontejneru a projektové repo zůstane čisté (volume překryje adresář).
+The file survives container rebuilds and the project repo stays clean (the volume overlays the directory).
 
-## Vývoj
+## Development
 
 ```bash
 npm install

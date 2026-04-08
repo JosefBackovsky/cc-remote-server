@@ -1,12 +1,12 @@
 # cc-remote-server
 
-Monorepo pro cc-remote platformu.
+Monorepo for the cc-remote platform.
 
 ## Packages
 
-| Package | Popis |
-|---------|-------|
-| [generator](./generator) | CLI nástroj pro generování devcontainer repozitářů |
-| [server](./server) | Setup a orchestrace remote dev serveru (Docker, Portainer, Portal, Tailscale, TLS) |
-| [services](./services) | Docker images pro platformu (Portal, Firewall) |
-| [setup-skill](./setup-skill) | Claude Code skill pro onboarding nových projektů |
+| Package | Description |
+|---------|-------------|
+| [generator](./generator) | CLI tool for generating devcontainer repositories |
+| [server](./server) | Remote dev server setup and orchestration (Docker, Portainer, Portal, Tailscale, TLS) |
+| [services](./services) | Docker images for the platform (Portal, Firewall) |
+| [setup-skill](./setup-skill) | Claude Code skill for onboarding new projects |

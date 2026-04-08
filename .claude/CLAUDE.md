@@ -1,65 +1,64 @@
 # cc-remote-server
 
-Monorepo pro cc-remote platformu — izolované Claude Code sandboxes na remote serveru.
+Monorepo for the cc-remote platform — isolated Claude Code sandboxes on a remote server.
 
-## Architektura
+## Architecture
 
 ```
 cc-remote-server/
-├── generator/     CLI (Node.js) pro generování devcontainer repozitářů
-├── server/        Setup skripty + Terraform pro remote dev host
+├── generator/     CLI (Node.js) for generating devcontainer repositories
+├── server/        Setup scripts + Terraform for the remote dev host
 ├── services/      Docker images (Portal, Firewall)
-└── setup-skill/   Claude Code skill pro onboarding nových projektů
+└── setup-skill/   Claude Code skill for onboarding new projects
 ```
 
-### Jak moduly spolupracují
+### How modules interact
 
 ```
-setup-skill (workflow pro onboarding)
+setup-skill (onboarding workflow)
     │
-    ├── generator (generuje devcontainer repo pro projekt)
-    │     └── používá firewall image z services/
+    ├── generator (generates devcontainer repo for a project)
+    │     └── uses firewall image from services/
     │
-    ├── server (infrastruktura pro běh devcontainerů)
-    │     └── deployuje portal image z services/
+    ├── server (infrastructure for running devcontainers)
+    │     └── deploys portal image from services/
     │
     └── services (Docker images: portal + firewall)
           └── CI build → Docker Hub
 ```
 
-## Moduly
+## Modules
 
 ### generator/
 
-CLI nástroj v Node.js generující devcontainer repozitáře pro zákaznické projekty.
+Node.js CLI tool that generates devcontainer repositories for customer projects.
 
 - **Stack:** Node.js 20+, ES modules, Commander, EJS, js-yaml
-- **Testy:** `cd generator && npm test` (Node.js test runner)
-- **Konvence:** žádný TypeScript, žádný linter, anglické funkce
+- **Tests:** `cd generator && npm test` (Node.js test runner)
+- **Conventions:** no TypeScript, no linter, English function names
 
 ### server/
 
-Setup skripty pro remote development host (Azure VM nebo Debian server).
+Setup scripts for the remote development host (Azure VM or Debian server).
 
-- **Skripty (`scripts/`):** idempotentní, distro-agnostické, parametrizované
+- **Scripts (`scripts/`):** idempotent, distro-agnostic, parameterized
 - **Azure (`azure/`):** Terraform >= 1.5, AzureRM >= 3.0
-- **Konvence:** `set -euo pipefail`, shellcheck clean
+- **Conventions:** `set -euo pipefail`, shellcheck clean
 
 ### services/
 
-Docker images — Portal (dashboard) a Firewall (Squid proxy + approval manager).
+Docker images — Portal (dashboard) and Firewall (Squid proxy + approval manager).
 
 - **Stack:** Python, FastAPI
-- **CI:** GitHub Actions v `.github/workflows/` (root), path-filtered buildy
+- **CI:** GitHub Actions in `.github/workflows/` (root), path-filtered builds
 - **Images:** `josefbackovsky/cc-remote-portal`, `josefbackovsky/cc-remote-firewall`
 
 ### setup-skill/
 
-Claude Code skill pro end-to-end onboarding nových projektů na cc-remote platformu.
+Claude Code skill for end-to-end onboarding of new projects onto the cc-remote platform.
 
-## Konvence
+## Conventions
 
 - Commit messages: conventional commits (`feat`, `fix`, `refactor`, `chore`, `docs`)
-- Scope: název modulu (`generator`, `server`, `services`, `ci`)
-- Sensitive data nikdy v gitu
-- Dokumentace česky, kód anglicky
+- Scope: module name (`generator`, `server`, `services`, `ci`)
+- Sensitive data never in git
