@@ -35,19 +35,37 @@
         .btn-deny:hover { opacity: 0.85; }
         .btn-revoke { background: var(--pending); color: #fff; }
         .btn-revoke:hover { opacity: 0.85; }
+        .btn-reviewed { background: #555; color: #fff; }
+        .btn-reviewed:hover { opacity: 0.85; }
+        .btn-block { background: var(--denied); color: #fff; margin-left: 4px; }
+        .btn-block:hover { opacity: 0.85; }
         .section-collapsed { display: none; }
         .empty { padding: 20px; text-align: center; color: var(--text-muted); background: var(--surface); border-radius: 6px; box-shadow: 0 1px 3px var(--shadow); margin-bottom: 20px; }
         .reason { max-width: 300px; font-size: 0.9em; color: var(--text-secondary); }
+        .url { max-width: 200px; font-size: 0.85em; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .count { font-weight: 600; }
         .last-refresh { font-size: 0.8em; color: var(--text-muted); margin-bottom: 20px; }
         .theme-toggle { position: fixed; top: 16px; right: 16px; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.85em; box-shadow: 0 1px 3px var(--shadow); }
         .theme-toggle:hover { opacity: 0.85; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600; }
+        .badge-allow { background: var(--approved); color: #fff; }
+        .badge-deny { background: var(--denied); color: #fff; }
+        .badge-escalate { background: var(--pending); color: #fff; }
     </style>
 </head>
 <body>
     <button class="theme-toggle" onclick="toggleTheme()">Light Mode</button>
     <h1>Firewall Manager Dashboard</h1>
     <div class="last-refresh">Last refresh: <span id="refresh-time">-</span></div>
+
+    <h2 onclick="toggleSection('pending-review-section', this)">Auto-Approved (Pending Review) <span class="toggle">▼</span></h2>
+    <div id="pending-review-section"></div>
+
+    <h2 onclick="toggleSection('escalated-section', this)">Escalated Requests <span class="toggle">▼</span></h2>
+    <div id="escalated-section"></div>
+
+    <h2 onclick="toggleSection('decisions-section', this)">Recent Decisions <span class="toggle">▼</span></h2>
+    <div id="decisions-section"></div>
 
     <h2>Rules</h2>
     <div id="add-rule-form" style="margin-bottom: 20px; padding: 15px; background: var(--surface); border-radius: 6px; box-shadow: 0 1px 3px var(--shadow);">
@@ -82,6 +100,94 @@
         async function fetchJSON(url, opts) {
             const res = await fetch(API + url, opts);
             return res.json();
+        }
+
+        async function loadPendingReview() {
+            const data = await fetchJSON('/api/decisions/pending-review');
+            const el = document.getElementById('pending-review-section');
+            if (!data.length) {
+                el.innerHTML = '<div class="empty">No decisions pending review.</div>';
+                return;
+            }
+            let html = '<table><tr><th>Domain</th><th>URL</th><th>Reasoning</th><th>Actions</th></tr>';
+            for (const d of data) {
+                html += `<tr>
+                    <td><b>${esc(d.domain)}</b></td>
+                    <td class="url" title="${esc(d.url || '')}">${esc(d.url || '-')}</td>
+                    <td class="reason">${esc(d.reasoning || '-')}</td>
+                    <td>
+                        <button class="btn-reviewed" onclick="reviewDecision('${d.id}')">Reviewed</button>
+                        <button class="btn-block" onclick="blockDecision('${d.id}')">Block</button>
+                    </td>
+                </tr>`;
+            }
+            html += '</table>';
+            el.innerHTML = html;
+        }
+
+        async function loadEscalated() {
+            const data = await fetchJSON('/api/escalated');
+            const el = document.getElementById('escalated-section');
+            if (!data.length) {
+                el.innerHTML = '<div class="empty">No escalated requests.</div>';
+                return;
+            }
+            let html = '<table><tr><th>Domain</th><th>URL</th><th>Reasoning</th><th>Actions</th></tr>';
+            for (const d of data) {
+                html += `<tr>
+                    <td><b>${esc(d.domain)}</b></td>
+                    <td class="url" title="${esc(d.url || '')}">${esc(d.url || '-')}</td>
+                    <td class="reason">${esc(d.reasoning || '-')}</td>
+                    <td>
+                        <button class="btn-approve" onclick="approveEscalated('${d.id}')">Approve</button>
+                        <button class="btn-deny" onclick="denyEscalated('${d.id}')">Deny</button>
+                    </td>
+                </tr>`;
+            }
+            html += '</table>';
+            el.innerHTML = html;
+        }
+
+        async function loadDecisions() {
+            const data = await fetchJSON('/api/decisions?limit=20');
+            const el = document.getElementById('decisions-section');
+            if (!data.length) {
+                el.innerHTML = '<div class="empty">No decisions recorded yet.</div>';
+                return;
+            }
+            let html = '<table><tr><th>Domain</th><th>URL</th><th>Decision</th><th>Reasoning</th><th>Review</th></tr>';
+            for (const d of data) {
+                const decClass = d.decision === 'allow' ? 'badge-allow' : d.decision === 'deny' ? 'badge-deny' : 'badge-escalate';
+                html += `<tr>
+                    <td><b>${esc(d.domain)}</b></td>
+                    <td class="url" title="${esc(d.url || '')}">${esc(d.url || '-')}</td>
+                    <td><span class="badge ${decClass}">${esc(d.decision)}</span></td>
+                    <td class="reason">${esc(d.reasoning || '-')}</td>
+                    <td>${esc(d.review_status || '-')}</td>
+                </tr>`;
+            }
+            html += '</table>';
+            el.innerHTML = html;
+        }
+
+        async function reviewDecision(id) {
+            await fetchJSON(`/api/decisions/${id}/review`, { method: 'POST' });
+            refresh();
+        }
+
+        async function blockDecision(id) {
+            await fetchJSON(`/api/decisions/${id}/block`, { method: 'POST' });
+            refresh();
+        }
+
+        async function approveEscalated(id) {
+            await fetchJSON(`/api/escalated/${id}/approve`, { method: 'POST' });
+            refresh();
+        }
+
+        async function denyEscalated(id) {
+            await fetchJSON(`/api/escalated/${id}/deny`, { method: 'POST' });
+            refresh();
         }
 
         async function loadRules() {
@@ -133,8 +239,25 @@
         }
 
         async function refresh() {
-            await loadRules();
+            await Promise.all([
+                loadPendingReview(),
+                loadEscalated(),
+                loadDecisions(),
+                loadRules(),
+            ]);
             document.getElementById('refresh-time').textContent = new Date().toLocaleTimeString();
+        }
+
+        function toggleSection(id, heading) {
+            const el = document.getElementById(id);
+            const toggle = heading.querySelector('.toggle');
+            if (el.classList.contains('section-collapsed')) {
+                el.classList.remove('section-collapsed');
+                if (toggle) toggle.textContent = '▼';
+            } else {
+                el.classList.add('section-collapsed');
+                if (toggle) toggle.textContent = '▶';
+            }
         }
 
         function esc(s) {
