@@ -7,8 +7,6 @@ from pydantic import BaseModel
 
 from database import init_db, create_request, get_request, list_requests, update_request_status
 from whitelist import read_whitelist, add_domain, remove_domain
-from logparser import parse_blocked_domains
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -97,11 +95,8 @@ async def deny_request(request_id: str):
 
 @app.get("/api/blocked")
 async def get_blocked_domains():
-    """Aggregated TCP_DENIED entries from Squid access log."""
-    whitelist = set(read_whitelist())
-    blocked = parse_blocked_domains()
-    # Filter out domains already whitelisted
-    return [entry for entry in blocked if entry["domain"] not in whitelist]
+    """Blocked domains — placeholder, will be replaced by LLM decisions in Phase 3."""
+    return []
 
 
 @app.post("/api/approve")

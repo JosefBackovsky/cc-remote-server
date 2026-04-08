@@ -97,7 +97,7 @@
             const data = await fetchJSON('/api/blocked');
             const el = document.getElementById('blocked-section');
             if (data.length === 0) {
-                el.innerHTML = '<div class="empty">No blocked domains in Squid log.</div>';
+                el.innerHTML = '<div class="empty">No blocked domains.</div>';
                 return;
             }
             let html = '<table><tr><th>Domain</th><th>Blocked Count</th><th>Last Seen</th><th>Actions</th></tr>';
