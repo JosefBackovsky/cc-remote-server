@@ -104,11 +104,11 @@ STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     "https://pypi.org/" 2>/dev/null || echo "000")
 assert_status "whitelisted domain (pypi.org)" "200" "$STATUS"
 
-# Test 2: unknown domain blocked
+# Test 2: unknown domain blocked (use a real domain not on whitelist)
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
     --proxy "http://localhost:$PROXY_PORT" --cacert "$CA_CERT" \
     --max-time 10 \
-    "https://evil-test-domain.example.com/" 2>/dev/null || echo "000")
+    "https://example.com/" 2>/dev/null || echo "000")
 assert_status "unknown domain blocked" "403" "$STATUS"
 
 # Test 3: git push blocked (github.com is whitelisted but git-receive-pack is denied)
