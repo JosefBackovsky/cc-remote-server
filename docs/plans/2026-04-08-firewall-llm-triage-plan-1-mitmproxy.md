@@ -95,7 +95,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /workspace/services/firewall/manager && python -m pytest test_firewall_addon.py -v`
+Run: `cd /workspace/services/firewall/manager && python -m unittest test_firewall_addon -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'firewall_addon'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -105,33 +105,20 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'firewall_addon'`
 """mitmproxy addon for domain-based whitelist filtering.
 
 Phase 1: functional equivalent of Squid whitelist.
-Reads whitelist from file, reloads periodically, blocks non-whitelisted domains with 403.
+Reads whitelist from whitelist.py (shared with FastAPI), reloads periodically,
+blocks non-whitelisted domains with 403.
 """
 
 import json
 import logging
-import os
 import time
-from pathlib import Path
 
 from mitmproxy import http
+from whitelist import read_whitelist
 
 logger = logging.getLogger("firewall")
 
-WHITELIST_PATH = Path(os.environ.get("WHITELIST_PATH", "/data/whitelist.txt"))
 RELOAD_INTERVAL = 5  # seconds
-
-
-def _load_whitelist(path: Path) -> set[str]:
-    """Load whitelist from file, skipping comments and blank lines."""
-    if not path.exists():
-        return set()
-    entries = set()
-    for line in path.read_text().splitlines():
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#"):
-            entries.add(stripped.lower())
-    return entries
 
 
 def _is_whitelisted(domain: str, whitelist: set[str]) -> bool:
@@ -150,14 +137,19 @@ def _is_whitelisted(domain: str, whitelist: set[str]) -> bool:
 
 class WhitelistAddon:
     def __init__(self):
-        self._whitelist = _load_whitelist(WHITELIST_PATH)
+        self._whitelist = set(d.lower() for d in read_whitelist())
         self._last_reload = time.monotonic()
-        logger.info("Loaded %d whitelist entries from %s", len(self._whitelist), WHITELIST_PATH)
+        logger.info("Loaded %d whitelist entries", len(self._whitelist))
 
     def _maybe_reload(self):
+        """Reload whitelist every RELOAD_INTERVAL seconds.
+        
+        Note: there is a potential ~5s window where a newly-approved domain
+        is still blocked. This matches the old Squid checksum watcher behavior.
+        """
         now = time.monotonic()
         if now - self._last_reload >= RELOAD_INTERVAL:
-            self._whitelist = _load_whitelist(WHITELIST_PATH)
+            self._whitelist = set(d.lower() for d in read_whitelist())
             self._last_reload = now
 
     def request(self, flow: http.HTTPFlow) -> None:
@@ -184,7 +176,7 @@ addons = [WhitelistAddon()]
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /workspace/services/firewall/manager && python -m pytest test_firewall_addon.py -v`
+Run: `cd /workspace/services/firewall/manager && python -m unittest test_firewall_addon -v`
 Expected: 4 tests PASS
 
 - [ ] **Step 5: Commit**
@@ -320,7 +312,6 @@ mitmdump \
     --listen-host 0.0.0.0 \
     --listen-port 3128 \
     --set confdir="$HOME/.mitmproxy" \
-    --ssl-insecure \
     -s /app/firewall_addon.py \
     > "$DATA_DIR/logs/mitmproxy.log" 2>&1 &
 MITM_PID=$!
@@ -455,10 +446,11 @@ git commit -m "feat(generator): add CA cert distribution for mitmproxy"
 
 ---
 
-### Task 5: Update FastAPI app — remove Squid-specific code
+### Task 5: Update FastAPI app and dashboard — remove Squid-specific code
 
 **Files:**
 - Modify: `services/firewall/manager/main.py`
+- Modify: `services/firewall/manager/templates/index.html`
 - Delete: `services/firewall/manager/logparser.py`
 
 - [ ] **Step 1: Update main.py — remove logparser dependency from blocked endpoint**
@@ -474,18 +466,22 @@ async def get_blocked_domains():
     return []
 ```
 
-- [ ] **Step 2: Delete logparser.py**
+- [ ] **Step 2: Update dashboard — remove "Squid log" reference**
+
+In `services/firewall/manager/templates/index.html`, find `No blocked domains in Squid log.` (around line 100) and change to `No blocked domains.`
+
+- [ ] **Step 3: Delete logparser.py**
 
 Run: `rm /workspace/services/firewall/manager/logparser.py`
 
-- [ ] **Step 3: Run existing tests if any**
+- [ ] **Step 4: Run existing tests if any**
 
 Run: `cd /workspace/services/firewall/manager && python -m pytest -v 2>/dev/null || echo "No existing test suite"`
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add services/firewall/manager/main.py
+git add services/firewall/manager/main.py services/firewall/manager/templates/index.html
 git rm services/firewall/manager/logparser.py
 git commit -m "refactor(firewall): remove Squid-specific logparser, stub blocked endpoint"
 ```
