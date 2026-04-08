@@ -213,10 +213,32 @@ The generator creates generic service definitions. Review and adjust:
 - **Healthchecks** — add if the project depends on service readiness
 - **Langfuse** — if adding Langfuse stack, set `NEXTAUTH_URL` to `http://<server-hostname>:<port>` (not `localhost`) — the developer accesses the dashboard remotely via the server hostname
 
-### VS Code workspace file
+### VS Code workspace file — recommended extensions
 
-For multi-repo projects, create a `.code-workspace` file in `.devcontainer/` with recommended extensions:
+**Always create a `.code-workspace` file** in `.devcontainer/`, even for single-repo projects. This is the only way to get VS Code to prompt for extension installation when connecting via SSH Remote.
 
+**Why:** Developers connect to cc-remote devcontainers via SSH Remote, not Dev Containers extension. Extensions listed in `devcontainer.json` only auto-install with "Reopen in Container". Over SSH, VS Code ignores `devcontainer.json` entirely. A `.code-workspace` file with `extensions.recommendations` triggers VS Code's "Install Recommended Extensions" prompt.
+
+Single-repo example:
+```json
+{
+  "folders": [
+    { "path": "/workspace", "name": "<project-name>" }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "/usr/bin/python3"
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-python.python",
+      "ms-python.debugpy",
+      "eamodio.gitlens"
+    ]
+  }
+}
+```
+
+Multi-repo example:
 ```json
 {
   "folders": [
@@ -244,6 +266,18 @@ ln -sf /workspace/.devcontainer-repo/.devcontainer/<name>.code-workspace /worksp
 ```
 
 **NEVER bind-mount a single file** (e.g. `./file.json:/workspace/file.json`). When `git pull` updates the file on the host, it creates a new inode — but the bind mount still points to the old inode, so the container sees stale content. Always mount the parent directory instead.
+
+### Gitignore symlinks in the project repo
+
+The symlinked `.code-workspace` file and `.devcontainer-repo/` directory appear in the project repo's working tree. Add them to the project's `.gitignore`:
+
+```gitignore
+# Devcontainer (symlinked into /workspace by cc-remote)
+/<project-name>.code-workspace
+.devcontainer-repo/
+```
+
+Use `/<name>.code-workspace` (with leading `/`) to only ignore the symlink in the repo root — not workspace files in subdirectories.
 
 ### /workspace ownership
 
