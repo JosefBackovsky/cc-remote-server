@@ -3,18 +3,11 @@ set -euo pipefail
 
 DATA_DIR="/data"
 WHITELIST="$DATA_DIR/whitelist.txt"
-LOG_DIR="$DATA_DIR/logs"
-SQUID_CONF="/opt/squid.conf"
+CERT_DIR="$DATA_DIR/certs"
 DEFAULT_WHITELIST="/opt/whitelist-default.txt"
-CHECKSUM_FILE="/tmp/whitelist.md5"
 
 # Ensure directories exist
-mkdir -p "$LOG_DIR"
-chown -R proxy:proxy "$DATA_DIR"
-
-# Ensure PID directory exists
-mkdir -p /var/run/squid
-chown proxy:proxy /var/run/squid
+mkdir -p "$DATA_DIR/logs" "$CERT_DIR"
 
 # Initialize whitelist if not exists (first run)
 if [ ! -f "$WHITELIST" ]; then
@@ -34,40 +27,38 @@ if [ -n "${EXTRA_DOMAINS:-}" ]; then
     done
 fi
 
-# Ensure whitelist is writable
-chown proxy:proxy "$WHITELIST"
-chmod 664 "$WHITELIST"
+# Generate mitmproxy CA certificate if not exists
+if [ ! -f "$HOME/.mitmproxy/mitmproxy-ca.pem" ]; then
+    echo "[entrypoint] Generating mitmproxy CA certificate..."
+    timeout 5 mitmdump --set confdir="$HOME/.mitmproxy" -p 0 > /dev/null 2>&1 || true
+    echo "[entrypoint] CA certificate generated."
+fi
 
-# Initialize squid cache directories
-squid -z --foreground -f "$SQUID_CONF" 2>/dev/null || true
+# Copy public CA cert to shared volume (devcontainer reads this)
+if [ -f "$HOME/.mitmproxy/mitmproxy-ca-cert.pem" ]; then
+    cp "$HOME/.mitmproxy/mitmproxy-ca-cert.pem" "$CERT_DIR/mitmproxy-ca-cert.pem"
+    echo "[entrypoint] CA certificate available at $CERT_DIR/mitmproxy-ca-cert.pem"
+else
+    echo "[entrypoint] ERROR: CA certificate not found!" >&2
+    exit 1
+fi
 
-# Compute initial whitelist checksum
-md5sum "$WHITELIST" > "$CHECKSUM_FILE" 2>/dev/null || echo "none" > "$CHECKSUM_FILE"
+# Background: mitmproxy
+# PYTHONPATH ensures addon script can import sibling modules (rule_engine, etc.)
+export PYTHONPATH=/app:${PYTHONPATH:-}
+echo "[entrypoint] Starting mitmproxy on port 3128..."
+mitmdump \
+    --listen-host 0.0.0.0 \
+    --listen-port 3128 \
+    --set confdir="$HOME/.mitmproxy" \
+    -s /app/firewall_addon.py \
+    > "$DATA_DIR/logs/mitmproxy.log" 2>&1 &
+MITM_PID=$!
 
-# Background: whitelist file watcher
-(
-    while true; do
-        sleep 5
-        NEW_SUM=$(md5sum "$WHITELIST" 2>/dev/null || echo "none")
-        OLD_SUM=$(cat "$CHECKSUM_FILE" 2>/dev/null || echo "")
-        if [ "$NEW_SUM" != "$OLD_SUM" ]; then
-            echo "[whitelist-watcher] Whitelist changed, reconfiguring squid..."
-            squid -k reconfigure -f "$SQUID_CONF" 2>/dev/null || true
-            echo "$NEW_SUM" > "$CHECKSUM_FILE"
-            echo "[whitelist-watcher] Squid reconfigured."
-        fi
-    done
-) &
-
-# Background: squid proxy
-echo "[entrypoint] Starting squid proxy..."
-squid --foreground -f "$SQUID_CONF" &
-SQUID_PID=$!
-
-# Wait for squid to be ready
+# Wait for mitmproxy to be ready
 for i in $(seq 1 30); do
     if bash -c 'echo > /dev/tcp/localhost/3128' 2>/dev/null; then
-        echo "[entrypoint] Squid ready on port 3128."
+        echo "[entrypoint] mitmproxy ready on port 3128."
         break
     fi
     sleep 1

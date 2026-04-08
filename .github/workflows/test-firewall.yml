@@ -1,0 +1,40 @@
+name: Test Firewall
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'services/firewall/**'
+      - 'tests/integration/test_firewall_container.sh'
+  pull_request:  # TODO: remove after first successful run
+    paths:
+      - 'services/firewall/**'
+      - 'tests/integration/test_firewall_container.sh'
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          pip install fastapi uvicorn aiosqlite jinja2 httpx
+      - name: Run unit tests
+        working-directory: services/firewall/manager
+        run: python -m unittest discover -p "test_*.py" -v
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run integration tests
+        env:
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+        run: bash tests/integration/test_firewall_container.sh

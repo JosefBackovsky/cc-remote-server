@@ -25,6 +25,9 @@ services:
 <%_ } _%>
       - <%= name %>-commandhistory:/commandhistory
       - <%= name %>-persistent:/home/node/.persistent
+<%_ if (!fullInternet) { _%>
+      - firewall-certs:/certs:ro
+<%_ } _%>
     ports:
       - "<%= sshPort %>:22"
     command: >
@@ -60,13 +63,23 @@ services:
       - "<%= firewallPort %>:8080"
     volumes:
       - firewall-data:/data
-<%_ if ((stack.firewall_domains || []).length > 0) { _%>
+      - firewall-certs:/data/certs
+      - audit-log:/audit
     environment:
+<%_ if ((stack.firewall_domains || []).length > 0) { _%>
       - EXTRA_DOMAINS=<%= stack.firewall_domains.join(',') %>
 <%_ } _%>
+      - MANAGER_AUTH_TOKEN=${MANAGER_AUTH_TOKEN:-}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-5.4-mini}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-12-01-preview}
+      - PROJECT_CONTEXT=${PROJECT_CONTEXT:-}
+      - LLM_ENABLED=${LLM_ENABLED:-true}
+      - AUDIT_LOG_PATH=/audit/firewall.jsonl
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/3128' && curl -sf http://localhost:8080/api/whitelist > /dev/null"]
+      test: ["CMD-SHELL", "test -f /data/certs/mitmproxy-ca-cert.pem && bash -c 'echo > /dev/tcp/localhost/3128' && curl -sf http://localhost:8080/ > /dev/null"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -128,6 +141,8 @@ volumes:
 <%_ } _%>
 <%_ if (!fullInternet) { _%>
   firewall-data:
+  firewall-certs:
+  audit-log:
 <%_ } _%>
 <%_ for (const volName of Object.keys(serviceVolumes)) { _%>
   <%= volName %>:
