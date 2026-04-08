@@ -60,6 +60,40 @@ class TestEvaluateRequest(unittest.TestCase):
             result = asyncio.run(evaluate_request("x.com", "https://x.com/", "GET", {}, None))
             self.assertEqual(result["decision"], "escalate")
 
+    def test_timeout_returns_escalate(self):
+        """When LLM call times out, returns escalate."""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_client.close = AsyncMock()
+
+        mock_openai_module = MagicMock()
+        mock_openai_module.AsyncAzureOpenAI.return_value = mock_client
+
+        with patch("llm_evaluator.AZURE_ENDPOINT", "https://test.openai.azure.com"), \
+             patch("llm_evaluator.AZURE_API_KEY", "test-key"), \
+             patch.dict("sys.modules", {"openai": mock_openai_module}):
+            result = asyncio.run(evaluate_request("x.com", "https://x.com/", "GET", {}, None))
+
+        self.assertEqual(result["decision"], "escalate")
+        self.assertIn("timeout", result["reasoning"].lower())
+
+    def test_api_error_returns_escalate(self):
+        """When Azure API returns an error, returns escalate."""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API rate limit exceeded"))
+        mock_client.close = AsyncMock()
+
+        mock_openai_module = MagicMock()
+        mock_openai_module.AsyncAzureOpenAI.return_value = mock_client
+
+        with patch("llm_evaluator.AZURE_ENDPOINT", "https://test.openai.azure.com"), \
+             patch("llm_evaluator.AZURE_API_KEY", "test-key"), \
+             patch.dict("sys.modules", {"openai": mock_openai_module}):
+            result = asyncio.run(evaluate_request("x.com", "https://x.com/", "GET", {}, None))
+
+        self.assertEqual(result["decision"], "escalate")
+        self.assertIn("error", result["reasoning"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()
