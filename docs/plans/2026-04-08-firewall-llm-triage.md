@@ -581,7 +581,7 @@ Přidání rule engine s podporou domain, URL pattern a HTTP method pravidel. Gi
 - Nový modul `rule_engine.py` s in-memory snapshot (reload při mutaci)
 - Regex patterny pre-kompilované, max 200 znaků
 - DB tabulka `rules` + migrace + indexy
-- Import `whitelist-default.txt` do rules při prvním startu (idempotentní)
+- Import whitelistu do rules při prvním startu (idempotentní): nejdřív existující `/data/whitelist.txt` (zachová manuálně schválené domény z předchozí verze), pak `whitelist-default.txt` jako fallback pokud `/data/whitelist.txt` neexistuje
 - Import `EXTRA_DOMAINS` env var do rules při startu (zachování zpětné kompatibility)
 - API endpointy pro rules CRUD (s `MANAGER_AUTH_TOKEN` auth)
 - Auth middleware: Bearer token na všechny management endpointy, `POST /api/request` + `GET /api/requests/{id}` zůstávají bez auth
