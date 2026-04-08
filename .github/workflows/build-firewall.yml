@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'firewall/**'
+      - 'services/firewall/**'
     tags:
       - 'firewall/v*'
 
@@ -36,7 +36,7 @@ jobs:
           for TAG in "${TAG_ARRAY[@]}"; do
             BUILD_ARGS="${BUILD_ARGS} -t ${TAG}"
           done
-          docker build ${BUILD_ARGS} firewall/
+          docker build ${BUILD_ARGS} services/firewall/
           for TAG in "${TAG_ARRAY[@]}"; do
             docker push "${TAG}"
           done

@@ -5,7 +5,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'portal/**'
+      - 'services/portal/**'
     tags:
       - 'portal/v*'
 
@@ -36,7 +36,7 @@ jobs:
           for TAG in "${TAG_ARRAY[@]}"; do
             BUILD_ARGS="${BUILD_ARGS} -t ${TAG}"
           done
-          docker build ${BUILD_ARGS} portal/
+          docker build ${BUILD_ARGS} services/portal/
           for TAG in "${TAG_ARRAY[@]}"; do
             docker push "${TAG}"
           done
