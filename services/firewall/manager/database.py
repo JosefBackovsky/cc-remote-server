@@ -14,6 +14,7 @@ def get_db():
 async def init_db():
     async with get_db() as db:
         db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA journal_mode=WAL")
         await db.execute("""
             CREATE TABLE IF NOT EXISTS requests (
                 id TEXT PRIMARY KEY,
@@ -38,6 +39,30 @@ async def init_db():
         """)
         await db.execute("""
             CREATE INDEX IF NOT EXISTS idx_rules_domain ON rules(domain)
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS llm_decisions (
+                id TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                url TEXT NOT NULL,
+                method TEXT NOT NULL,
+                decision TEXT NOT NULL,
+                reasoning TEXT NOT NULL,
+                source TEXT NOT NULL,
+                cached BOOLEAN DEFAULT FALSE,
+                review_status TEXT,
+                reviewed_at TEXT
+            )
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_decisions_timestamp ON llm_decisions(timestamp)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_decisions_domain ON llm_decisions(domain)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_decisions_decision ON llm_decisions(decision, timestamp)
         """)
         await db.commit()
 
@@ -175,3 +200,101 @@ async def import_whitelist(domains: list[str]) -> int:
             existing_domains.add(domain)
             count += 1
     return count
+
+
+# --- LLM Decisions CRUD ---
+
+
+async def create_decision(domain: str, url: str, method: str, decision: str,
+                          reasoning: str, source: str, cached: bool = False,
+                          review_status: str | None = None) -> dict:
+    """Create an LLM decision record."""
+    decision_id = uuid.uuid4().hex[:12]
+    now = datetime.now(timezone.utc).isoformat()
+    async with get_db() as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute(
+            """INSERT INTO llm_decisions
+               (id, timestamp, domain, url, method, decision, reasoning, source, cached, review_status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (decision_id, now, domain, url, method, decision, reasoning, source, cached, review_status),
+        )
+        await db.commit()
+    return {
+        "id": decision_id, "timestamp": now, "domain": domain, "url": url,
+        "method": method, "decision": decision, "reasoning": reasoning,
+        "source": source, "cached": cached, "review_status": review_status,
+        "reviewed_at": None,
+    }
+
+
+async def list_decisions(limit: int = 50, offset: int = 0) -> list[dict]:
+    """List decisions, newest first."""
+    async with get_db() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM llm_decisions ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def list_pending_review() -> list[dict]:
+    """List auto-approved decisions pending developer review."""
+    async with get_db() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM llm_decisions WHERE decision = 'approve' AND review_status = 'pending' ORDER BY timestamp DESC",
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def list_escalated() -> list[dict]:
+    """List escalated decisions (not yet approved/denied by developer)."""
+    async with get_db() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM llm_decisions WHERE decision = 'escalate' AND review_status IS NULL ORDER BY timestamp DESC",
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def get_decision(decision_id: str) -> dict | None:
+    """Get a single decision by ID."""
+    async with get_db() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM llm_decisions WHERE id = ?", (decision_id,))
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+
+async def update_review_status(decision_id: str, status: str) -> dict | None:
+    """Update review_status and set reviewed_at timestamp. Returns updated decision."""
+    now = datetime.now(timezone.utc).isoformat()
+    async with get_db() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "UPDATE llm_decisions SET review_status = ?, reviewed_at = ? WHERE id = ?",
+            (status, now, decision_id),
+        )
+        await db.commit()
+        if cursor.rowcount == 0:
+            return None
+    return await get_decision(decision_id)
+
+
+async def cleanup_old_decisions(days: int = 30) -> int:
+    """Delete decisions older than N days. Returns count deleted."""
+    async with get_db() as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "DELETE FROM llm_decisions WHERE timestamp < datetime('now', ? || ' days')",
+            (f"-{days}",),
+        )
+        await db.commit()
+        return cursor.rowcount
