@@ -64,11 +64,18 @@ services:
     volumes:
       - firewall-data:/data
       - firewall-certs:/data/certs
+      - audit-log:/audit
     environment:
 <%_ if ((stack.firewall_domains || []).length > 0) { _%>
       - EXTRA_DOMAINS=<%= stack.firewall_domains.join(',') %>
 <%_ } _%>
       - MANAGER_AUTH_TOKEN=${MANAGER_AUTH_TOKEN:-}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-5.4-mini}
+      - PROJECT_CONTEXT=${PROJECT_CONTEXT:-}
+      - LLM_ENABLED=${LLM_ENABLED:-true}
+      - AUDIT_LOG_PATH=/audit/firewall.jsonl
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "test -f /data/certs/mitmproxy-ca-cert.pem && bash -c 'echo > /dev/tcp/localhost/3128' && curl -sf http://localhost:8080/api/whitelist > /dev/null"]
@@ -135,6 +142,7 @@ volumes:
 <%_ if (!fullInternet) { _%>
   firewall-data:
   firewall-certs:
+  audit-log:
 <%_ } _%>
 <%_ for (const volName of Object.keys(serviceVolumes)) { _%>
   <%= volName %>:
