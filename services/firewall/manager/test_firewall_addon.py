@@ -107,6 +107,40 @@ class TestFirewallAddon(unittest.TestCase):
         self.assertEqual(flow.response.status_code, 403)
         mock_eval.assert_called_once()
 
+    def test_cache_hit_skips_llm(self):
+        """Second request to same domain uses cache, no LLM call."""
+        # Pre-populate cache
+        self.addon._cache[("unknown.com", "GET", "/page")] = {
+            "decision": "approve", "reasoning": "Cached"
+        }
+
+        flow = self._make_flow("unknown.com", "https://unknown.com/page", "/page")
+
+        with patch("firewall_addon.LLM_ENABLED", True), \
+             patch("firewall_addon.evaluate_request") as mock_eval, \
+             patch("firewall_addon._save_decision_to_db"):
+            asyncio.run(self.addon.request(flow))
+
+        # LLM should NOT have been called (cache hit)
+        mock_eval.assert_not_called()
+        # Request should pass through (approve)
+        self.assertIsNone(flow.response)
+
+    def test_semaphore_full_escalates(self):
+        """When all LLM slots are in use, new requests are escalated."""
+        # Set semaphore to 0 capacity (all slots used)
+        self.addon._semaphore = asyncio.Semaphore(0)
+
+        flow = self._make_flow("newdomain.com", "https://newdomain.com/page", "/page")
+
+        with patch("firewall_addon.LLM_ENABLED", True), \
+             patch("firewall_addon._save_decision_to_db"):
+            asyncio.run(self.addon.request(flow))
+
+        # Should be blocked with escalate
+        self.assertIsNotNone(flow.response)
+        self.assertEqual(flow.response.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()
