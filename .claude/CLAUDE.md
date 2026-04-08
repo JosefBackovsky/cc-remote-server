@@ -2,6 +2,16 @@
 
 Monorepo for the cc-remote platform — isolated Claude Code sandboxes on a remote server.
 
+## Security Model
+
+Each project runs in an isolated sandbox. Claude has full freedom inside — security is enforced at the boundaries:
+
+- **Firewall (input):** Squid proxy with domain whitelist prevents data exfiltration. All outbound traffic goes through the proxy.
+- **Git (output):** Read-only PAT in the container. Claude can pull and commit but cannot push. The developer pushes after review.
+- **Per-project isolation:** Separate Docker Compose stack, firewall, credentials, and network per project.
+
+When designing features or making changes, preserve these invariants: the devcontainer must never have push access, Docker socket access, or unfiltered internet.
+
 ## Architecture
 
 ```
