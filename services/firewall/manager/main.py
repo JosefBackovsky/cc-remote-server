@@ -3,7 +3,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -15,6 +15,17 @@ from database import (
 from whitelist import read_whitelist, add_domain, remove_domain
 
 logger = logging.getLogger(__name__)
+
+MANAGER_AUTH_TOKEN = os.environ.get("MANAGER_AUTH_TOKEN", "")
+
+
+async def verify_auth(request: Request):
+    """Verify Bearer token for management API endpoints."""
+    if not MANAGER_AUTH_TOKEN:
+        return  # no token configured — dev mode, allow all
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {MANAGER_AUTH_TOKEN}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 async def _migrate_whitelist_to_rules():
@@ -82,20 +93,20 @@ async def dashboard(request: Request):
 # --- Claude request API ---
 
 
-@app.post("/api/request")
+@app.post("/api/request", dependencies=[Depends(verify_auth)])
 async def submit_request(body: DomainRequest):
     """Claude submits a request to access a blocked domain."""
     result = await create_request(body.domain, body.reason)
     return {"id": result["id"], "status": result["status"]}
 
 
-@app.get("/api/requests")
+@app.get("/api/requests", dependencies=[Depends(verify_auth)])
 async def get_requests():
     """List all domain access requests."""
     return await list_requests()
 
 
-@app.get("/api/requests/{request_id}")
+@app.get("/api/requests/{request_id}", dependencies=[Depends(verify_auth)])
 async def get_request_detail(request_id: str):
     """Get status of a specific request (Claude polls this)."""
     result = await get_request(request_id)
@@ -104,7 +115,7 @@ async def get_request_detail(request_id: str):
     return result
 
 
-@app.post("/api/requests/{request_id}/approve")
+@app.post("/api/requests/{request_id}/approve", dependencies=[Depends(verify_auth)])
 async def approve_request(request_id: str):
     """Approve a pending request — adds domain to whitelist."""
     req = await get_request(request_id)
@@ -118,7 +129,7 @@ async def approve_request(request_id: str):
     return {"status": "approved", "domain": req["domain"]}
 
 
-@app.post("/api/requests/{request_id}/deny")
+@app.post("/api/requests/{request_id}/deny", dependencies=[Depends(verify_auth)])
 async def deny_request(request_id: str):
     """Deny a pending request."""
     req = await get_request(request_id)
@@ -134,20 +145,20 @@ async def deny_request(request_id: str):
 # --- Direct whitelist management ---
 
 
-@app.get("/api/blocked")
+@app.get("/api/blocked", dependencies=[Depends(verify_auth)])
 async def get_blocked_domains():
     """Blocked domains — placeholder, will be replaced by LLM decisions in Phase 3."""
     return []
 
 
-@app.post("/api/approve")
+@app.post("/api/approve", dependencies=[Depends(verify_auth)])
 async def approve_domain_directly(body: DomainAction):
     """Approve a domain directly (from blocked view, without Claude request)."""
     added = add_domain(body.domain)
     return {"status": "approved", "domain": body.domain, "added": added}
 
 
-@app.delete("/api/revoke")
+@app.delete("/api/revoke", dependencies=[Depends(verify_auth)])
 async def revoke_domain(body: DomainAction):
     """Remove a domain from whitelist."""
     removed = remove_domain(body.domain)
@@ -156,7 +167,7 @@ async def revoke_domain(body: DomainAction):
     return {"status": "revoked", "domain": body.domain}
 
 
-@app.get("/api/whitelist")
+@app.get("/api/whitelist", dependencies=[Depends(verify_auth)])
 async def get_whitelist():
     """Current whitelist contents."""
     return read_whitelist()
