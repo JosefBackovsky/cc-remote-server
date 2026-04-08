@@ -45,7 +45,10 @@ def _load_rules_from_db() -> list[dict]:
         conn.close()
         return rules
     except Exception as e:
-        logger.error("Failed to load rules from DB: %s", e)
+        # Warning, not error — mitmproxy exits on error-level logs during startup.
+        # This happens on first start before init_db() creates the tables.
+        # The addon will reload rules after 5s (by which time tables exist).
+        logger.warning("Failed to load rules from DB: %s", e)
         return []
 
 
@@ -63,7 +66,7 @@ def _save_decision_to_db(domain, url, method, decision, reasoning, source,
         conn.commit()
         conn.close()
     except Exception as e:
-        logger.error("Failed to save decision: %s", e)
+        logger.warning("Failed to save decision: %s", e)
 
 
 def _make_403(domain, decision, reasoning):
