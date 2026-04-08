@@ -18,7 +18,7 @@ services:
 <%_ } else { _%>
       - ../../<%= name %>:/workspace:cached
 <%_ } _%>
-      - claude-shared:/home/node/.claude
+      - <%= name %>-claude:/home/node/.claude
       - <%= name %>-vscode-server:/home/node/.vscode-server
 <%_ if (localClaude) { _%>
       - ../../<%= name %>-devcontainer/.project-claude:/workspace/.claude:cached
@@ -119,8 +119,7 @@ services:
 <%_ } _%>
 
 volumes:
-  claude-shared:
-    external: true
+  <%= name %>-claude:
   <%= name %>-vscode-server:
   <%= name %>-commandhistory:
   <%= name %>-persistent:

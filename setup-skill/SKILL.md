@@ -67,8 +67,8 @@ Claude Code starts automatically in a tmux session when the container starts. Th
 ### Git credentials — read-only for Claude, push via developer
 Claude uses a **read-only PAT** stored in `~/.git-credentials` in the container for git pull operations. This prevents Claude from pushing without human review. The developer reviews Claude's changes and **pushes via VS Code** (using their own credentials) or from the host.
 
-### claude-shared volume
-A single Docker volume `claude-shared` is mounted at `/home/node/.claude` across all projects on the server. It stores Claude Code OAuth tokens and global settings — so Claude is already authenticated in every new devcontainer.
+### Claude Code volume
+Each project gets its own named Docker volume `<name>-claude` mounted at `/home/node/.claude`. This provides full isolation — separate auth, conversation history, and settings per project. Claude must log in separately in each devcontainer. The volume survives `docker compose down` (auth persists across container recreates).
 
 ---
 
@@ -88,9 +88,8 @@ Read each repo's README for up-to-date options. The READMEs are the authoritativ
 
 Before adding the first project, the server needs:
 1. **Server setup** — follow [server/](../server) README (Docker, Tailscale, Portal, Portainer)
-2. **claude-shared volume** — `docker volume create claude-shared`
-3. **SSH access** — server reachable via Tailscale as `cc-ts`
-4. **Projects directory** — `~/projects/` on the server (e.g. `/home/josefbackovsky/projects/`)
+2. **SSH access** — server reachable via Tailscale as `cc-ts`
+3. **Projects directory** — `~/projects/` on the server (e.g. `/home/josefbackovsky/projects/`)
 
 ---
 

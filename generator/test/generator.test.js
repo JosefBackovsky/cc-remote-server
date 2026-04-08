@@ -201,8 +201,7 @@ describe('generate', () => {
     generate(opts());
     const content = readFileSync(join(outputDir, '.devcontainer', 'docker-compose.yml'), 'utf-8');
     assert.ok(content.includes('testproject-commandhistory:'));
-    assert.ok(content.includes('claude-shared:'));
-    assert.ok(!content.includes('testproject-claude-project:'));
+    assert.ok(content.includes('testproject-claude:'));
   });
 
   it('docker-compose.yml uses devcontainer as service name', () => {

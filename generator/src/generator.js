@@ -153,32 +153,29 @@ ${composePaths}
 `;
   }
 
-  const jetbrainsStep = localClaude ? '7' : '6';
+  const jetbrainsStep = localClaude ? '6' : '5';
 
   console.log(`
 === Devcontainer vygenerován: ${output} ===
 
-1. Vytvořte sdílený Docker volume (jednou za stroj):
-   docker volume create claude-shared
-
-2. Otevřete devcontainer ve VS Code:
+1. Otevřete devcontainer ve VS Code:
    cd ${output}
    code .
    → "Reopen in Container"
 
-3. Připojení ke Claude Code:
+2. Připojení ke Claude Code:
    tmux attach -t claude
 
-4. Odpojení (Claude dál pracuje):
+3. Odpojení (Claude dál pracuje):
    Ctrl+B, pak D
 
-5. Nastavení git credentials pro Claude (read-only):
+4. Nastavení git credentials pro Claude (read-only):
    Na serveru v .devcontainer/.env přidejte:
    GIT_CREDENTIALS_READONLY=https://<user>:<read-only-PAT>@<git-host>
    Pak: docker compose up -d --force-recreate devcontainer
    (Credentials se automaticky seedují při každém startu kontejneru)${ungit ? `
 
-${localClaude ? '7' : '6'}. Git push přes Ungit (write credentials):
+${localClaude ? '6' : '5'}. Git push přes Ungit (write credentials):
    Vytvořte secret soubor na serveru:
    mkdir -p ~/.secrets/${name} && chmod 700 ~/.secrets/${name}
    echo "https://<user>:<write-PAT>@<git-host>" > ~/.secrets/${name}/git-credentials-write

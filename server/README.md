@@ -16,7 +16,7 @@ Dev Host (Azure VM or Debian server)
 ├── Portal (server dashboard, port 80/443)
 ├── Portainer (web UI, port 9443)
 ├── devcontainer per project (SSH ports 2222+)
-├── Docker volumes (claude-shared, per-project)
+├── Docker volumes (per-project)
 └── ~/projects/
 ```
 
@@ -85,7 +85,7 @@ server/
 │   ├── certbot.sh              # Let's Encrypt cert via Azure DNS challenge
 │   ├── portainer.sh            # Run Portainer container (with optional TLS)
 │   ├── portal.sh               # Deploy Portal from Docker Hub image
-│   └── shared-volumes.sh      # Create claude-shared volume + ~/projects
+│   └── shared-volumes.sh      # Create ~/projects directory
 ├── azure/                      # Azure VM target (Terraform)
 │   ├── main.tf
 │   ├── variables.tf
@@ -109,7 +109,7 @@ All scripts in `scripts/` are idempotent (safe to run multiple times), distro-ag
 | `certbot.sh` | Let's Encrypt cert via Azure DNS challenge | `<domain> <azure-credentials-file> <email>` |
 | `portainer.sh` | Run Portainer CE container (TLS if domain given) | `[domain]` |
 | `portal.sh` | Deploy Portal from Docker Hub image | `[--domain D] [--cert-dir DIR] [--rebuild]` |
-| `shared-volumes.sh` | Create `claude-shared` volume + `~/projects` | `<username>` |
+| `shared-volumes.sh` | Create `~/projects` directory | `<username>` |
 
 ## Portal Dashboard
 

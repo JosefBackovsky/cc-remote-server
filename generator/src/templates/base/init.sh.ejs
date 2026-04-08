@@ -5,11 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BASE_DIR="$(dirname "$PROJECT_DIR")/<%= name %>"
 
-# Vytvoř sdílený volume pro Claude credentials (pokud neexistuje)
-if ! docker volume inspect claude-shared &>/dev/null; then
-  echo "Creating shared Docker volume: claude-shared"
-  docker volume create claude-shared
-fi
 <%_ if (multiRepo) { _%>
 
 # Multi-repo: vytvořit rodičovský adresář
