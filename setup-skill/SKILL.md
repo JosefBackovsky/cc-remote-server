@@ -47,7 +47,7 @@ The developer doesn't sit next to Claude — they connect remotely, observe what
 
 ### Portal
 Auto-discovery dashboard running on the server at `http://<server-hostname>`. Shows all running containers across all projects with their ports and status. No manual configuration — just run `docker compose up -d` and the project appears automatically.
-See: [cc-remote-services](https://github.com/JosefBackovsky/cc-remote-services)
+See: [services/](../services)
 
 ### Firewall
 Each devcontainer has its own `firewall` service (combined Squid proxy + Firewall Manager) deployed as part of the project's docker-compose stack. It:
@@ -76,9 +76,9 @@ A single Docker volume `claude-shared` is mounted at `/home/node/.claude` across
 
 | Tool | Repo | Purpose |
 |------|------|---------|
-| **claude-devcontainer-generator** | [github.com/JosefBackovsky/claude-devcontainer-generator](https://github.com/JosefBackovsky/claude-devcontainer-generator) | CLI that generates a ready-to-use devcontainer repo |
-| **cc-remote-services** | [github.com/JosefBackovsky/cc-remote-services](https://github.com/JosefBackovsky/cc-remote-services) | Pre-built Docker images: portal, firewall |
-| **remote-dev-server** | [github.com/JosefBackovsky/remote-dev-server](https://github.com/JosefBackovsky/remote-dev-server) | Server setup scripts |
+| **generator** | [generator/](../generator) | CLI that generates a ready-to-use devcontainer repo |
+| **services** | [services/](../services) | Pre-built Docker images: portal, firewall |
+| **server** | [server/](../server) | Server setup scripts |
 
 Read each repo's README for up-to-date options. The READMEs are the authoritative reference — this skill covers the workflow.
 
@@ -87,7 +87,7 @@ Read each repo's README for up-to-date options. The READMEs are the authoritativ
 ## Prerequisites (one-time per server)
 
 Before adding the first project, the server needs:
-1. **Server setup** — follow [remote-dev-server](https://github.com/JosefBackovsky/remote-dev-server) README (Docker, Tailscale, Portal, Portainer)
+1. **Server setup** — follow [server/](../server) README (Docker, Tailscale, Portal, Portainer)
 2. **claude-shared volume** — `docker volume create claude-shared`
 3. **SSH access** — server reachable via Tailscale as `cc-ts`
 4. **Projects directory** — `~/projects/` on the server (e.g. `/home/josefbackovsky/projects/`)
@@ -145,12 +145,12 @@ Example: `--port-prefix 82` → SSH=8222, Firewall=8280.
 
 ## Phase 4: Generate the Devcontainer(s)
 
-Clone the generator repo if not available locally (`git clone git@github.com:JosefBackovsky/claude-devcontainer-generator.git`). Then run `npm install`.
+Navigate to the `generator/` directory in this monorepo. Then run `npm install`.
 
 ### Single-repo example
 
 ```bash
-cd <path-to-claude-devcontainer-generator>
+cd <path-to-monorepo>/generator
 
 node src/cli.js \
   --repo git@github.com:<org>/<repo>.git \

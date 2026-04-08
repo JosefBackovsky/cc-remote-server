@@ -1,6 +1,6 @@
-# cc-remote-services
+# services
 
-Docker images for the [cc-remote](https://github.com/JosefBackovsky/cc-remote) platform.
+Docker images for the cc-remote platform.
 
 ## Components
 

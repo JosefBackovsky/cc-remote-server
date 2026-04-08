@@ -1,4 +1,4 @@
-# remote-dev-server
+# server
 
 Setup scripts for remote development host — Docker, Portainer, Portal dashboard, and optionally Tailscale + Let's Encrypt TLS. Supports both Azure VM (Terraform) and Debian home server.
 
@@ -24,11 +24,11 @@ Dev Host (Azure VM or Debian server)
 
 ```bash
 # 1. Copy to server
-scp -r scripts/ debian/ user@server:~/remote-dev-server/
+scp -r scripts/ debian/ user@server:~/cc-remote-server/
 
 # 2. SSH and install
 ssh user@server
-cd ~/remote-dev-server
+cd ~/cc-remote-server
 
 # Minimal (Docker + Portainer + Portal)
 ./debian/install.sh
@@ -78,7 +78,7 @@ terraform apply
 ## Project Structure
 
 ```
-remote-dev-server/
+server/
 ├── scripts/                    # Shared setup scripts
 │   ├── docker.sh               # Install Docker Engine (Ubuntu + Debian)
 │   ├── tailscale.sh            # Install and configure Tailscale
@@ -123,7 +123,7 @@ The Portal is a lightweight web dashboard (Python/FastAPI) that auto-discovers a
 - Auto-refresh every 10 seconds
 - Optional HTTPS with Let's Encrypt certificates
 
-**Source code:** [`cc-remote-services/portal/`](https://github.com/JosefBackovsky/cc-remote-services/tree/main/portal) (separate monorepo, built via GitHub Actions, pushed to Docker Hub)
+**Source code:** [`services/portal/`](../services/portal) (built via GitHub Actions, pushed to Docker Hub)
 
 **Deploy:**
 

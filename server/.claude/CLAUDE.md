@@ -1,4 +1,4 @@
-# remote-dev-server
+# server
 
 ## Co to je
 
