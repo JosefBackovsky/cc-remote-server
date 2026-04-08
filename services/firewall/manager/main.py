@@ -9,10 +9,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from database import (
-    init_db, create_request, get_request, list_requests, update_request_status,
-    create_rule, list_rules, import_whitelist,
+    init_db, create_rule, get_rule, list_rules, update_rule, delete_rule,
+    import_whitelist,
 )
-from whitelist import read_whitelist, add_domain, remove_domain
 
 logger = logging.getLogger(__name__)
 
@@ -73,13 +72,20 @@ templates = Jinja2Templates(directory="templates")
 # --- Pydantic models ---
 
 
-class DomainRequest(BaseModel):
+class RuleCreate(BaseModel):
     domain: str
-    reason: str
+    action: str  # "allow" or "deny"
+    path_pattern: str | None = None
+    path_prefix: str | None = None
+    description: str | None = None
 
 
-class DomainAction(BaseModel):
-    domain: str
+class RuleUpdate(BaseModel):
+    domain: str | None = None
+    action: str | None = None
+    path_pattern: str | None = None
+    path_prefix: str | None = None
+    description: str | None = None
 
 
 # --- HTML dashboard ---
@@ -90,84 +96,41 @@ async def dashboard(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-# --- Claude request API ---
+# --- Rules CRUD API ---
 
 
-@app.post("/api/request", dependencies=[Depends(verify_auth)])
-async def submit_request(body: DomainRequest):
-    """Claude submits a request to access a blocked domain."""
-    result = await create_request(body.domain, body.reason)
-    return {"id": result["id"], "status": result["status"]}
+@app.get("/api/rules", dependencies=[Depends(verify_auth)])
+async def api_list_rules():
+    return await list_rules()
 
 
-@app.get("/api/requests", dependencies=[Depends(verify_auth)])
-async def get_requests():
-    """List all domain access requests."""
-    return await list_requests()
+@app.post("/api/rules", status_code=201, dependencies=[Depends(verify_auth)])
+async def api_create_rule(body: RuleCreate):
+    if body.path_pattern and len(body.path_pattern) > 200:
+        raise HTTPException(status_code=400, detail="path_pattern exceeds 200 chars")
+    rule = await create_rule(
+        domain=body.domain, action=body.action,
+        path_pattern=body.path_pattern, path_prefix=body.path_prefix,
+        description=body.description,
+    )
+    return rule
 
 
-@app.get("/api/requests/{request_id}", dependencies=[Depends(verify_auth)])
-async def get_request_detail(request_id: str):
-    """Get status of a specific request (Claude polls this)."""
-    result = await get_request(request_id)
-    if result is None:
-        raise HTTPException(status_code=404, detail="Request not found")
-    return result
+@app.put("/api/rules/{rule_id}", dependencies=[Depends(verify_auth)])
+async def api_update_rule(rule_id: str, body: RuleUpdate):
+    if body.path_pattern and len(body.path_pattern) > 200:
+        raise HTTPException(status_code=400, detail="path_pattern exceeds 200 chars")
+    rule = await update_rule(rule_id, domain=body.domain, action=body.action,
+                             path_pattern=body.path_pattern, path_prefix=body.path_prefix,
+                             description=body.description)
+    if rule is None:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return rule
 
 
-@app.post("/api/requests/{request_id}/approve", dependencies=[Depends(verify_auth)])
-async def approve_request(request_id: str):
-    """Approve a pending request — adds domain to whitelist."""
-    req = await get_request(request_id)
-    if req is None:
-        raise HTTPException(status_code=404, detail="Request not found")
-    if req["status"] != "pending":
-        raise HTTPException(status_code=400, detail=f"Request is already {req['status']}")
-
-    add_domain(req["domain"])
-    result = await update_request_status(request_id, "approved")
-    return {"status": "approved", "domain": req["domain"]}
-
-
-@app.post("/api/requests/{request_id}/deny", dependencies=[Depends(verify_auth)])
-async def deny_request(request_id: str):
-    """Deny a pending request."""
-    req = await get_request(request_id)
-    if req is None:
-        raise HTTPException(status_code=404, detail="Request not found")
-    if req["status"] != "pending":
-        raise HTTPException(status_code=400, detail=f"Request is already {req['status']}")
-
-    result = await update_request_status(request_id, "denied")
-    return {"status": "denied", "domain": req["domain"]}
-
-
-# --- Direct whitelist management ---
-
-
-@app.get("/api/blocked", dependencies=[Depends(verify_auth)])
-async def get_blocked_domains():
-    """Blocked domains — placeholder, will be replaced by LLM decisions in Phase 3."""
-    return []
-
-
-@app.post("/api/approve", dependencies=[Depends(verify_auth)])
-async def approve_domain_directly(body: DomainAction):
-    """Approve a domain directly (from blocked view, without Claude request)."""
-    added = add_domain(body.domain)
-    return {"status": "approved", "domain": body.domain, "added": added}
-
-
-@app.delete("/api/revoke", dependencies=[Depends(verify_auth)])
-async def revoke_domain(body: DomainAction):
-    """Remove a domain from whitelist."""
-    removed = remove_domain(body.domain)
-    if not removed:
-        raise HTTPException(status_code=404, detail="Domain not in whitelist")
-    return {"status": "revoked", "domain": body.domain}
-
-
-@app.get("/api/whitelist", dependencies=[Depends(verify_auth)])
-async def get_whitelist():
-    """Current whitelist contents."""
-    return read_whitelist()
+@app.delete("/api/rules/{rule_id}", dependencies=[Depends(verify_auth)])
+async def api_delete_rule(rule_id: str):
+    deleted = await delete_rule(rule_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"deleted": True}
