@@ -7,6 +7,10 @@ on:
     paths:
       - 'services/firewall/**'
       - 'tests/integration/test_firewall_container.sh'
+  pull_request:  # TODO: remove after first successful run
+    paths:
+      - 'services/firewall/**'
+      - 'tests/integration/test_firewall_container.sh'
 
 jobs:
   unit-tests:
