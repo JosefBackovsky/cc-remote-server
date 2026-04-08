@@ -52,11 +52,13 @@ RUN echo 'export HISTFILE=/commandhistory/.zsh_history' >> ~/.zshrc \
     && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc \
     && echo '[ -f ~/.container-env ] && source ~/.container-env' >> ~/.zshrc
 
-# Claude tmux session shortcuts
-RUN echo 'ccl() { tmux list-sessions 2>/dev/null || echo "No active sessions"; }' >> ~/.zshrc \
-    && echo 'ccc() { local name="${1:?Usage: ccc <name>}"; tmux new-session -d -s "$name" "claude --dangerously-skip-permissions"; echo "Created session: $name"; }' >> ~/.zshrc \
-    && echo 'cck() { local name="${1:?Usage: cck <name>}"; tmux kill-session -t "$name"; }' >> ~/.zshrc \
-    && echo 'cca() { if [ -n "$1" ]; then tmux attach -t "$1"; else local s; s=$(tmux list-sessions -F "#{session_name}" 2>/dev/null | fzf --height=10 --prompt="Session: "); [ -n "$s" ] && tmux attach -t "$s"; fi; }' >> ~/.zshrc
+# Claude tmux session shortcuts (both shells — SSH may use bash or zsh)
+RUN for rc in ~/.zshrc ~/.bashrc; do \
+      echo 'ccl() { tmux list-sessions 2>/dev/null || echo "No active sessions"; }' >> "$rc"; \
+      echo 'ccc() { local name="${1:?Usage: ccc <name>}"; tmux new-session -d -s "$name" "claude --dangerously-skip-permissions"; echo "Created session: $name"; }' >> "$rc"; \
+      echo 'cck() { local name="${1:?Usage: cck <name>}"; tmux kill-session -t "$name"; }' >> "$rc"; \
+      echo 'cca() { if [ -n "$1" ]; then tmux attach -t "$1"; else local s; s=$(tmux list-sessions -F "#{session_name}" 2>/dev/null | fzf --height=10 --prompt="Session: "); [ -n "$s" ] && tmux attach -t "$s"; fi; }' >> "$rc"; \
+    done
 
 # Install Claude Code (native installer)
 USER node
