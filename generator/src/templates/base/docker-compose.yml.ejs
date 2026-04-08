@@ -73,12 +73,13 @@ services:
       - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
       - AZURE_OPENAI_DEPLOYMENT=${AZURE_OPENAI_DEPLOYMENT:-gpt-5.4-mini}
+      - AZURE_OPENAI_API_VERSION=${AZURE_OPENAI_API_VERSION:-2025-12-01-preview}
       - PROJECT_CONTEXT=${PROJECT_CONTEXT:-}
       - LLM_ENABLED=${LLM_ENABLED:-true}
       - AUDIT_LOG_PATH=/audit/firewall.jsonl
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "test -f /data/certs/mitmproxy-ca-cert.pem && bash -c 'echo > /dev/tcp/localhost/3128' && curl -sf http://localhost:8080/api/whitelist > /dev/null"]
+      test: ["CMD-SHELL", "test -f /data/certs/mitmproxy-ca-cert.pem && bash -c 'echo > /dev/tcp/localhost/3128' && curl -sf http://localhost:8080/ > /dev/null"]
       interval: 10s
       timeout: 5s
       retries: 3

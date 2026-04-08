@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="auth-token" content="{{ auth_token }}">
     <title>Firewall Manager</title>
     <style>
         :root[data-theme="dark"] {
@@ -97,7 +98,11 @@
     <script>
         const API = '';
 
-        async function fetchJSON(url, opts) {
+        async function fetchJSON(url, opts = {}) {
+            if (!opts.headers) opts.headers = {};
+            // Auth token injected by server as meta tag, or empty for dev mode
+            const token = document.querySelector('meta[name="auth-token"]')?.content || '';
+            if (token) opts.headers['Authorization'] = 'Bearer ' + token;
             const res = await fetch(API + url, opts);
             return res.json();
         }

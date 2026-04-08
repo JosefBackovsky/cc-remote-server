@@ -6,6 +6,8 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from typing import Literal
+
 from pydantic import BaseModel
 
 from database import (
@@ -77,7 +79,7 @@ templates = Jinja2Templates(directory="templates")
 
 class RuleCreate(BaseModel):
     domain: str
-    action: str  # "allow" or "deny"
+    action: Literal["allow", "deny"]
     path_pattern: str | None = None
     path_prefix: str | None = None
     description: str | None = None
@@ -85,7 +87,7 @@ class RuleCreate(BaseModel):
 
 class RuleUpdate(BaseModel):
     domain: str | None = None
-    action: str | None = None
+    action: Literal["allow", "deny"] | None = None
     path_pattern: str | None = None
     path_prefix: str | None = None
     description: str | None = None
@@ -96,7 +98,10 @@ class RuleUpdate(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "auth_token": MANAGER_AUTH_TOKEN,
+    })
 
 
 # --- Rules CRUD API ---

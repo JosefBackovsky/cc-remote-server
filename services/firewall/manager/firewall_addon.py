@@ -9,6 +9,8 @@ import logging
 import os
 import sqlite3
 import time
+import uuid
+from datetime import datetime, timezone
 
 try:
     from mitmproxy import http
@@ -50,8 +52,6 @@ def _load_rules_from_db() -> list[dict]:
 def _save_decision_to_db(domain, url, method, decision, reasoning, source,
                          cached=False, review_status=None):
     """Save LLM decision to DB (synchronous, fire-and-forget)."""
-    import uuid
-    from datetime import datetime, timezone
     try:
         conn = sqlite3.connect(DB_PATH)
         decision_id = uuid.uuid4().hex[:12]
@@ -189,8 +189,20 @@ class FirewallAddon:
                                      source="cache", start_ms=start_ms, body=body)
                 return
 
-        # Concurrency gate
-        if self._semaphore.locked() and self._semaphore._value == 0:
+        # Set dedup event
+        event = asyncio.Event()
+        self._pending[domain] = event
+
+        # Concurrency gate — non-blocking check via internal counter
+        # We access the semaphore's internal state to avoid blocking.
+        # If all slots are taken, escalate immediately.
+        try:
+            can_acquire = self._semaphore._value > 0
+        except AttributeError:
+            can_acquire = True  # fallback: assume available
+        if not can_acquire:
+            event.set()
+            self._pending.pop(domain, None)
             flow.response = _make_403(domain, "escalate", "Too many concurrent evaluations")
             self._audit.log(domain=domain, url=url, method=method, headers=headers, body=body,
                             decision="escalate", reasoning="Concurrency limit reached",
@@ -198,10 +210,6 @@ class FirewallAddon:
             _save_decision_to_db(domain, url, method, "escalate",
                                  "Concurrency limit reached", "concurrency_limit")
             return
-
-        # Set dedup event
-        event = asyncio.Event()
-        self._pending[domain] = event
 
         try:
             async with self._semaphore:

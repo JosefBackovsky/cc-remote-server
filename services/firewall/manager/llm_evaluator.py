@@ -125,6 +125,7 @@ async def evaluate_request(domain: str, url: str, method: str, headers: dict,
                 ],
                 temperature=0,
                 max_tokens=200,
+                reasoning_effort="none",
             ),
             timeout=LLM_TIMEOUT,
         )
