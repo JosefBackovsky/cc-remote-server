@@ -25,6 +25,9 @@ services:
 <%_ } _%>
       - <%= name %>-commandhistory:/commandhistory
       - <%= name %>-persistent:/home/node/.persistent
+<%_ if (!fullInternet) { _%>
+      - firewall-certs:/certs:ro
+<%_ } _%>
     ports:
       - "<%= sshPort %>:22"
     command: >
@@ -60,13 +63,14 @@ services:
       - "<%= firewallPort %>:8080"
     volumes:
       - firewall-data:/data
+      - firewall-certs:/data/certs
 <%_ if ((stack.firewall_domains || []).length > 0) { _%>
     environment:
       - EXTRA_DOMAINS=<%= stack.firewall_domains.join(',') %>
 <%_ } _%>
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/3128' && curl -sf http://localhost:8080/api/whitelist > /dev/null"]
+      test: ["CMD-SHELL", "test -f /data/certs/mitmproxy-ca-cert.pem && bash -c 'echo > /dev/tcp/localhost/3128' && curl -sf http://localhost:8080/api/whitelist > /dev/null"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -129,6 +133,7 @@ volumes:
 <%_ } _%>
 <%_ if (!fullInternet) { _%>
   firewall-data:
+  firewall-certs:
 <%_ } _%>
 <%_ for (const volName of Object.keys(serviceVolumes)) { _%>
   <%= volName %>:

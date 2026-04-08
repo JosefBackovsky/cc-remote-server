@@ -3,6 +3,31 @@ set -euo pipefail
 
 echo "Configuring firewall (proxy mode)..."
 
+# Install mitmproxy CA certificate into trust store
+CERT_PATH="/certs/mitmproxy-ca-cert.pem"
+if [ -f "$CERT_PATH" ]; then
+    echo "Installing mitmproxy CA certificate..."
+    sudo cp "$CERT_PATH" /usr/local/share/ca-certificates/mitmproxy-ca-cert.crt
+    sudo update-ca-certificates 2>/dev/null || true
+    echo "CA certificate installed."
+else
+    echo "WARNING: mitmproxy CA certificate not found at $CERT_PATH"
+fi
+
+# Set SSL environment variables for common tools
+export NODE_EXTRA_CA_CERTS="$CERT_PATH"
+export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
+export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+export GIT_SSL_CAINFO="/etc/ssl/certs/ca-certificates.crt"
+
+# Persist SSL env vars so they survive shell restarts
+cat >> /home/node/.container-env << 'ENVEOF'
+export NODE_EXTRA_CA_CERTS="/certs/mitmproxy-ca-cert.pem"
+export REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt"
+export SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt"
+export GIT_SSL_CAINFO="/etc/ssl/certs/ca-certificates.crt"
+ENVEOF
+
 # Flush existing rules
 iptables -F OUTPUT
 iptables -F INPUT
