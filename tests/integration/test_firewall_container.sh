@@ -54,7 +54,10 @@ for i in $(seq 1 60); do
     fi
     if [ "$i" -eq 60 ]; then
         echo "FAIL: services did not start within 60s"
+        echo "--- Container logs ---"
         docker logs "$CONTAINER"
+        echo "--- mitmproxy log ---"
+        docker exec "$CONTAINER" cat /data/logs/mitmproxy.log 2>/dev/null || echo "(no mitmproxy log)"
         exit 1
     fi
     sleep 1

@@ -44,6 +44,8 @@ else
 fi
 
 # Background: mitmproxy
+# PYTHONPATH ensures addon script can import sibling modules (rule_engine, etc.)
+export PYTHONPATH=/app:${PYTHONPATH:-}
 echo "[entrypoint] Starting mitmproxy on port 3128..."
 mitmdump \
     --listen-host 0.0.0.0 \
