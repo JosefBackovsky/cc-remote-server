@@ -1,0 +1,10 @@
+<%_ if (multiRepo) { _%>
+repos:
+<%_ for (const r of repos) { _%>
+  - url: <%= r.url %>
+    branch: <%= r.branch %>
+<%_ } _%>
+<%_ } else { _%>
+repo: <%= repos[0].url %>
+branch: <%= repos[0].branch %>
+<%_ } _%>

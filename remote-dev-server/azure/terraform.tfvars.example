@@ -1,0 +1,14 @@
+# Required — must be set before terraform apply
+resource_group_name = "my-resource-group"
+tailscale_auth_key  = "tskey-auth-xxxxx-xxxxxxxxxxxxxxxxx"
+
+# Optional — uncomment to override defaults
+# vm_name                = "devbox"
+# location               = "westeurope"
+# vm_size                = "Standard_B4as_v2"
+# os_disk_size_gb        = 128
+# os_disk_type           = "Standard_LRS"
+# admin_username         = "devuser"
+# ssh_public_key         = "~/.ssh/id_ed25519_devbox.pub"
+# auto_shutdown_time     = "2200"
+# auto_shutdown_timezone = "Central Europe Standard Time"

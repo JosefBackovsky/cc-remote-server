@@ -1,0 +1,42 @@
+name: Build Portal
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'portal/**'
+    tags:
+      - 'portal/v*'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/login-action@v4
+        with:
+          username: josefbackovsky
+          password: ${{ secrets.DOCKER_HUB_CC_REMOTE_SERVICE_TOKEN }}
+      - name: Resolve tags
+        id: tags
+        run: |
+          IMAGE="josefbackovsky/cc-remote-portal"
+          TAGS="${IMAGE}:${{ github.sha }},${IMAGE}:latest"
+          if [[ "${{ github.ref }}" == refs/tags/portal/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#portal/v}"
+            TAGS="${TAGS},${IMAGE}:${VERSION}"
+          fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+      - name: Build and push
+        run: |
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.tags.outputs.tags }}"
+          BUILD_ARGS=""
+          for TAG in "${TAG_ARRAY[@]}"; do
+            BUILD_ARGS="${BUILD_ARGS} -t ${TAG}"
+          done
+          docker build ${BUILD_ARGS} portal/
+          for TAG in "${TAG_ARRAY[@]}"; do
+            docker push "${TAG}"
+          done

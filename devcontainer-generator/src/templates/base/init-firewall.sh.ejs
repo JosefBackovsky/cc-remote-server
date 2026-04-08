@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "Configuring firewall (proxy mode)..."
+
+# Flush existing rules
+iptables -F OUTPUT
+iptables -F INPUT
+
+# Allow loopback
+iptables -A OUTPUT -o lo -j ACCEPT
+iptables -A INPUT -i lo -j ACCEPT
+
+# Allow established/related connections
+iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# Allow Docker embedded DNS only
+iptables -A OUTPUT -d 127.0.0.11 -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -d 127.0.0.11 -p tcp --dport 53 -j ACCEPT
+
+# Allow Docker internal networks (proxy, services...)
+iptables -A OUTPUT -d 10.0.0.0/8 -j ACCEPT
+iptables -A OUTPUT -d 172.16.0.0/12 -j ACCEPT
+iptables -A OUTPUT -d 192.168.0.0/16 -j ACCEPT
+
+# Block everything else — forces HTTP/HTTPS through proxy
+iptables -A OUTPUT -j DROP
+
+echo "Firewall configured. All HTTP/HTTPS traffic routed through proxy."

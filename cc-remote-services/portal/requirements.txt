@@ -1,0 +1,4 @@
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+docker==7.*
+jinja2==3.1.*

@@ -1,0 +1,91 @@
+FROM <%= stack.base_image %>
+
+# Install system tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    zsh \
+    tmux \
+    ripgrep \
+    fzf \
+    curl \
+    jq \
+    sudo \
+    openssh-server \
+<%_ if (!fullInternet) { _%>
+    iptables \
+<%_ } _%>
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user if not exists (Node.js images have 'node', others don't)
+RUN id -u node 2>/dev/null || (groupadd --gid 1000 node \
+    && useradd --uid 1000 --gid node --shell /bin/zsh --create-home node)
+
+# Install oh-my-zsh for node user
+USER node
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
+    && git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions \
+    && git clone https://github.com/zsh-users/zsh-syntax-highlighting ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting \
+    && sed -i 's/plugins=(git)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/' ~/.zshrc
+
+# tmux config
+RUN echo '\
+set -g mouse on\n\
+set -g history-limit 50000\n\
+set -g status-style "bg=colour235,fg=colour136"\n\
+set -g status-left "#[fg=colour46]#S "\n\
+set -g status-right "#[fg=colour136]%H:%M"\n\
+set -g default-terminal "screen-256color"\n\
+' > ~/.tmux.conf
+
+# Command history directory
+USER root
+RUN mkdir -p /commandhistory && chown node:node /commandhistory
+USER node
+RUN echo 'export HISTFILE=/commandhistory/.zsh_history' >> ~/.zshrc \
+    && echo 'export HISTSIZE=10000' >> ~/.zshrc \
+    && echo 'export SAVEHIST=10000' >> ~/.zshrc \
+    && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc \
+    && echo '[ -f ~/.container-env ] && source ~/.container-env' >> ~/.zshrc
+
+# Install Claude Code (native installer)
+USER node
+RUN mkdir /tmp/claude-install && cd /tmp/claude-install \
+    && curl -fsSL https://claude.ai/install.sh | bash \
+    && rm -rf /tmp/claude-install
+
+# Pre-create dirs so empty volumes inherit correct ownership
+RUN mkdir -p /home/node/.claude /home/node/.vscode-server /home/node/.persistent \
+    && chown node:node /home/node/.claude /home/node/.vscode-server /home/node/.persistent
+
+# SSH server for JetBrains IDE access
+USER root
+RUN mkdir -p /run/sshd \
+    && sed -i 's/#PermitEmptyPasswords no/PermitEmptyPasswords yes/' /etc/ssh/sshd_config \
+    && passwd -d node
+
+# Sudoers — full sudo for node (devcontainer is an isolated environment)
+RUN echo 'node ALL=(root) NOPASSWD: ALL' > /etc/sudoers.d/node \
+    && chmod 0440 /etc/sudoers.d/node
+
+<%_ if (!fullInternet) { _%>
+# Copy firewall script
+COPY init-firewall.sh /usr/local/bin/init-firewall.sh
+RUN chmod +x /usr/local/bin/init-firewall.sh
+<%_ } _%>
+
+WORKDIR /workspace
+RUN chown node:node /workspace
+USER node
+<%_ if (!fullInternet) { _%>
+RUN git config --global credential.helper 'store --file /home/node/.persistent/.git-credentials' \
+    && git config --global http.proxy http://firewall:3128 \
+    && git config --global https.proxy http://firewall:3128<%_ if (gitName) { _%> \
+    && git config --global user.name '<%= gitName %>'<%_ } _%><%_ if (gitEmail) { _%> \
+    && git config --global user.email '<%= gitEmail %>'<%_ } _%>
+
+<%_ } else { _%>
+RUN git config --global credential.helper 'store --file /home/node/.persistent/.git-credentials'<%_ if (gitName) { _%> \
+    && git config --global user.name '<%= gitName %>'<%_ } _%><%_ if (gitEmail) { _%> \
+    && git config --global user.email '<%= gitEmail %>'<%_ } _%>
+
+<%_ } _%>

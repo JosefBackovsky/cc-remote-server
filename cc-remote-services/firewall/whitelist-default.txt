@@ -1,0 +1,25 @@
+# Pre-approved domains (base whitelist)
+# Project-specific domains are added via EXTRA_DOMAINS env var
+
+# Claude API
+api.anthropic.com
+claude.ai
+statsig.anthropic.com
+sentry.io
+
+# Git
+github.com
+gitlab.com
+objects.githubusercontent.com
+raw.githubusercontent.com
+
+# Python packages
+pypi.org
+files.pythonhosted.org
+
+# Node.js packages
+registry.npmjs.org
+registry.yarnpkg.com
+
+# .NET packages
+api.nuget.org

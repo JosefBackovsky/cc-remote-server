@@ -1,0 +1,82 @@
+<%
+const baseExtensions = [
+  "anthropic.claude-code",
+  "esbenp.prettier-vscode",
+  "dbaeumer.vscode-eslint",
+  "biomejs.biome",
+  "eamodio.gitlens",
+  "redhat.vscode-yaml",
+  "streetsidesoftware.code-spell-checker",
+  "streetsidesoftware.code-spell-checker-czech",
+  "hashicorp.terraform",
+  "styled-components.vscode-styled-components",
+  "bierner.markdown-mermaid",
+  "mhutchie.git-graph",
+];
+const extensions = [...baseExtensions];
+if (stack.vscode_extensions) {
+  extensions.push(...stack.vscode_extensions);
+}
+
+// Build forwardPorts and portsAttributes
+const forwardPorts = [sshPort];
+const portsAttributes = {};
+portsAttributes[String(sshPort)] = { label: "SSH", onAutoForward: "silent" };
+
+for (const [svcName, svc] of Object.entries(services)) {
+  if (!svc.ports) continue;
+  for (const portMapping of svc.ports) {
+    const hostPort = parseInt(portMapping.split(':')[0], 10);
+    forwardPorts.push(hostPort);
+    portsAttributes[String(hostPort)] = { label: svc.display_name, onAutoForward: "silent" };
+  }
+}
+-%>
+{
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "devcontainer",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "node",
+
+  "customizations": {
+    "vscode": {
+      "extensions": <%- JSON.stringify(extensions) %>,
+      "settings": {
+        "claude-code.enableAutoSkipPermissions": true,
+<%_ if (stack.name === 'python') { _%>
+        "python.defaultInterpreterPath": "/usr/local/bin/python3",
+<%_ } _%>
+        "remote.autoForwardPorts": false,
+        "remote.restoreForwardedPorts": false,
+        "git.terminalAuthentication": false,
+        "dev.containers.gitCredentialHelperConfigLocation": "none"
+      }
+    }
+  },
+
+  "forwardPorts": <%- JSON.stringify(forwardPorts) %>,
+
+  "portsAttributes": <%- JSON.stringify(portsAttributes, null, 2).replace(/\n/g, '\n  ') %>,
+
+  "otherPortsAttributes": {
+    "onAutoForward": "ignore"
+  },
+
+  "containerEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096",
+    "CLAUDE_CONFIG_DIR": "/home/node/.claude",
+    "POWERLEVEL9K_DISABLE_GITSTATUS": "true"
+  },
+
+  "remoteEnv": {
+    "VSCODE_GIT_ASKPASS_MAIN": "",
+    "VSCODE_GIT_ASKPASS_NODE": "",
+    "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
+    "VSCODE_GIT_IPC_HANDLE": "",
+    "GIT_ASKPASS": ""
+  },
+
+  "initializeCommand": ".devcontainer/init.sh"<% if (!fullInternet) { %>,
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+  "waitFor": "postStartCommand"<% } %>
+}

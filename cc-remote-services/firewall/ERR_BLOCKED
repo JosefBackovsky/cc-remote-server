@@ -1,0 +1,15 @@
+<html>
+<head><title>Domain Blocked</title></head>
+<body>
+<h1>ACCESS DENIED</h1>
+<p>Domain <b>%H</b> is not on the whitelist.</p>
+<p>This domain must be approved by the administrator before it can be accessed.</p>
+<p>If you are Claude Code: submit an approval request via:</p>
+<pre>curl -s -X POST http://firewall:8080/api/request \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "%H", "reason": "YOUR_REASON_HERE"}'</pre>
+<p>Then check status and retry after approval.</p>
+<hr>
+<p><small>Squid proxy on %h | Request: %U</small></p>
+</body>
+</html>

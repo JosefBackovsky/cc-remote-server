@@ -1,0 +1,141 @@
+name: <%= name %>
+<%_ if (includeCompose && !multiRepo) { _%>
+
+include:
+  - path: ../../<%= name %>/docker-compose.yml
+<%_ } _%>
+
+services:
+  devcontainer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+<%_ if (multiRepo) { _%>
+<%_ for (const r of repos) { _%>
+      - ../../<%= name %>/<%= r.name %>:/workspace/<%= r.name %>:cached
+<%_ } _%>
+<%_ } else { _%>
+      - ../../<%= name %>:/workspace:cached
+<%_ } _%>
+      - claude-shared:/home/node/.claude
+      - <%= name %>-vscode-server:/home/node/.vscode-server
+<%_ if (localClaude) { _%>
+      - ../../<%= name %>-devcontainer/.project-claude:/workspace/.claude:cached
+<%_ } _%>
+      - <%= name %>-commandhistory:/commandhistory
+      - <%= name %>-persistent:/home/node/.persistent
+    ports:
+      - "<%= sshPort %>:22"
+    command: >
+      bash -c "([ -n \"$$GIT_CREDENTIALS_READONLY\" ] && echo \"$$GIT_CREDENTIALS_READONLY\" > /home/node/.persistent/.git-credentials || true) && export PATH=/home/node/.local/bin:$PATH && export -p > /home/node/.container-env && sudo /usr/sbin/sshd && tmux new-session -d -s claude 'claude --dangerously-skip-permissions' && sleep infinity"
+    restart: always
+<%_ if (!fullInternet) { _%>
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+<%_ } _%>
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - CLAUDE_CONFIG_DIR=/home/node/.claude
+      - GIT_CREDENTIALS_READONLY=${GIT_CREDENTIALS_READONLY:-}
+<%_ if (!fullInternet) { _%>
+      - http_proxy=http://firewall:3128
+      - https_proxy=http://firewall:3128
+      - HTTP_PROXY=http://firewall:3128
+      - HTTPS_PROXY=http://firewall:3128
+      - no_proxy=localhost,127.0.0.1,firewall<%= Object.keys(services).length ? ',' + Object.keys(services).join(',') : '' %>
+      - NO_PROXY=localhost,127.0.0.1,firewall<%= Object.keys(services).length ? ',' + Object.keys(services).join(',') : '' %>
+    depends_on:
+      firewall:
+        condition: service_healthy
+<%_ } _%>
+<%_ if (!fullInternet) { _%>
+
+  firewall:
+    image: josefbackovsky/cc-remote-firewall:latest
+    ports:
+      - "<%= firewallPort %>:8080"
+    volumes:
+      - firewall-data:/data
+<%_ if ((stack.firewall_domains || []).length > 0) { _%>
+    environment:
+      - EXTRA_DOMAINS=<%= stack.firewall_domains.join(',') %>
+<%_ } _%>
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/3128' && curl -sf http://localhost:8080/api/whitelist > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+<%_ } _%>
+<%_ for (const [svcName, svc] of Object.entries(services)) { _%>
+
+  <%= svcName %>:
+    image: <%= svc.image %>
+<%_ if (svc.env) { _%>
+    environment:
+<%_ for (const [key, val] of Object.entries(svc.env)) { _%>
+      - <%= key %>=<%= val %>
+<%_ } _%>
+<%_ } _%>
+<%_ if (svc.ports) { _%>
+    ports:
+<%_ for (const port of svc.ports) { _%>
+      - "<%= port %>"
+<%_ } _%>
+<%_ } _%>
+<%_ if (svc.volumes) { _%>
+    volumes:
+<%_ for (const vol of svc.volumes) { _%>
+      - <%= vol %>
+<%_ } _%>
+<%_ } _%>
+<%_ } _%>
+<%_ if (ungit) { _%>
+
+  ungit:
+    image: node:22-slim
+    working_dir: /workspace
+    volumes:
+<%_ if (multiRepo) { _%>
+<%_ for (const r of repos) { _%>
+      - ../../<%= name %>/<%= r.name %>:/workspace/<%= r.name %>:cached
+<%_ } _%>
+<%_ } else { _%>
+      - ../../<%= name %>:/workspace:cached
+<%_ } _%>
+      - <%= name %>-ungit-data:/home/node/.ungit-config
+    ports:
+      - "<%= ungitPort %>:8448"
+    secrets:
+      - git-credentials-write
+    command: >
+      bash -c "apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* && npm install -g ungit && chown node:node /home/node/.ungit-config && echo '{\"port\": 8448, \"ungitBindIp\": \"0.0.0.0\", \"autoFetch\": false, \"defaultRepositories\": [<%- repos ? repos.map(r => '\"/workspace/' + r.name + '\"').join(', ') : '\"/workspace\"' %>]}' > /home/node/.ungitrc && chown node:node /home/node/.ungitrc && if [ ! -s /run/secrets/git-credentials-write ]; then echo 'ERROR: git-credentials-write secret is empty' >&2; exit 1; fi && cp /run/secrets/git-credentials-write /home/node/.ungit-config/.git-credentials && chown node:node /home/node/.ungit-config/.git-credentials && su node -c \"git config --global credential.helper 'store --file /home/node/.ungit-config/.git-credentials' && ungit\""
+    restart: always
+<%_ } _%>
+
+volumes:
+  claude-shared:
+    external: true
+  <%= name %>-vscode-server:
+  <%= name %>-commandhistory:
+  <%= name %>-persistent:
+<%_ if (ungit) { _%>
+  <%= name %>-ungit-data:
+<%_ } _%>
+<%_ if (!fullInternet) { _%>
+  firewall-data:
+<%_ } _%>
+<%_ for (const volName of Object.keys(serviceVolumes)) { _%>
+  <%= volName %>:
+<%_ } _%>
+<%_ if (ungit) { _%>
+
+secrets:
+  git-credentials-write:
+    file: ${HOME}/.secrets/<%= name %>/git-credentials-write
+<%_ } _%>

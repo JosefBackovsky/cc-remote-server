@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ hostname }} — Server Portal</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 24px; }
+        h1 { color: #fff; margin-bottom: 4px; font-size: 1.5em; }
+        .subtitle { color: #888; margin-bottom: 24px; font-size: 0.9em; }
+        .project { background: #16213e; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px; }
+        .project-name { color: #4fc3f7; font-size: 1.1em; font-weight: 600; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .services { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+        .service { background: #0f3460; border-radius: 6px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; }
+        .service-info { flex: 1; }
+        .service-name { font-weight: 600; color: #fff; font-size: 0.95em; }
+        .service-image { font-size: 0.75em; color: #666; margin-top: 2px; }
+        .service-ports { display: flex; flex-wrap: wrap; gap: 6px; }
+        .port-link { background: #1a1a2e; color: #4fc3f7; text-decoration: none; padding: 4px 10px; border-radius: 4px; font-size: 0.85em; font-family: monospace; }
+        .port-link:hover { background: #4fc3f7; color: #1a1a2e; }
+        .status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; }
+        .status-running, .status-healthy { background: #27ae60; }
+        .status-unhealthy { background: #c0392b; }
+        .status-starting { background: #e67e22; }
+        .status-exited, .status-dead { background: #555; }
+        .no-ports { color: #555; font-size: 0.8em; font-style: italic; }
+        .refresh-info { color: #555; font-size: 0.75em; margin-top: 16px; text-align: center; }
+    </style>
+</head>
+<body>
+    <h1>{{ hostname }}</h1>
+    <div class="subtitle">Server Portal</div>
+
+    {% for project_name, services in projects.items() %}
+    <div class="project">
+        <div class="project-name">
+            {% if project_name == "_global" %}Global Services{% else %}{{ project_name }}{% endif %}
+        </div>
+        <div class="services">
+            {% for svc in services %}
+            <div class="service">
+                <span class="status status-{{ svc.status }}"></span>
+                <div class="service-info">
+                    <div class="service-name">{{ svc.name }}</div>
+                    <div class="service-image">{{ svc.image }}</div>
+                </div>
+                <div class="service-ports">
+                    {% if svc.ports %}
+                        {% for p in svc.ports %}
+                        <a href="{{ p.url }}" target="_blank" class="port-link">:{{ p.host_port }}</a>
+                        {% endfor %}
+                    {% else %}
+                        <span class="no-ports">no ports</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="refresh-info">Auto-refresh every 10s</div>
+
+    <script>
+        setTimeout(() => location.reload(), 10000);
+    </script>
+</body>
+</html>

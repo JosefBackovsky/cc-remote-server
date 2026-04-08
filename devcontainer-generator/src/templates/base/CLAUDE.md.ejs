@@ -1,0 +1,37 @@
+# Proxy & Firewall Instructions
+
+This devcontainer uses a Squid forward proxy for all HTTP/HTTPS traffic. Direct internet access is blocked by iptables.
+
+## When a domain is blocked
+
+You will see one of these errors:
+- **HTTP requests:** HTML response with "ACCESS DENIED" and "Domain <domain> is not on the whitelist"
+- **HTTPS requests:** `Received HTTP code 403 from proxy after CONNECT`
+
+## How to request domain access
+
+1. Submit an approval request:
+```
+curl -s -X POST http://firewall:8080/api/request \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "example.com", "reason": "Need to access documentation for current task"}'
+```
+
+2. You will receive: `{"id": "abc123", "status": "pending"}`
+
+3. **Continue working on other tasks.** Do not wait idle.
+
+4. Before retrying, check the status:
+```
+curl -s http://firewall:8080/api/requests/abc123
+```
+
+5. If `"status": "approved"` — retry the original request.
+6. If `"status": "denied"` — find an alternative approach. Do not resubmit.
+
+## Rules
+
+- **Always provide a specific reason** explaining why you need the domain.
+- **Never retry a blocked request** without checking approval status first.
+- **Never attempt to bypass the proxy** (unsetting env vars, using --noproxy, etc.).
+- **One request per domain** — do not submit duplicate requests.

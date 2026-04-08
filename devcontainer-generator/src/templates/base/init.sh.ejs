@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+BASE_DIR="$(dirname "$PROJECT_DIR")/<%= name %>"
+
+# Vytvoř sdílený volume pro Claude credentials (pokud neexistuje)
+if ! docker volume inspect claude-shared &>/dev/null; then
+  echo "Creating shared Docker volume: claude-shared"
+  docker volume create claude-shared
+fi
+<%_ if (multiRepo) { _%>
+
+# Multi-repo: vytvořit rodičovský adresář
+mkdir -p "$BASE_DIR"
+<%_ for (const r of repos) { _%>
+
+if [ -d "$BASE_DIR/<%= r.name %>" ]; then
+  echo "Repository already exists at $BASE_DIR/<%= r.name %>, skipping clone."
+else
+  echo "Cloning <%= r.url %> into $BASE_DIR/<%= r.name %>..."
+  git clone --branch <%= r.branch %> "<%= r.url %>" "$BASE_DIR/<%= r.name %>"
+  echo "Clone complete."
+fi
+<%_ } _%>
+<%_ } else { _%>
+
+if [ -d "$BASE_DIR" ]; then
+  echo "Repository already exists at $BASE_DIR, skipping clone."
+else
+  echo "Cloning <%= repos[0].url %> into $BASE_DIR..."
+  git clone --branch <%= repos[0].branch %> "<%= repos[0].url %>" "$BASE_DIR"
+  echo "Clone complete."
+fi
+<%_ } _%>
+<%_ if (localClaude) { _%>
+<%_ if (multiRepo) { _%>
+
+# Přidej .claude do git exclude každého repa
+<%_ for (const r of repos) { _%>
+EXCLUDE_FILE="$BASE_DIR/<%= r.name %>/.git/info/exclude"
+if [ -f "$EXCLUDE_FILE" ] && ! grep -q '^\.claude/$' "$EXCLUDE_FILE"; then
+  echo ".claude/" >> "$EXCLUDE_FILE"
+  echo "Added .claude/ to git exclude (<%= r.name %>)."
+fi
+<%_ } _%>
+<%_ } else { _%>
+
+# Přidej .claude do git exclude zákaznického repa
+EXCLUDE_FILE="$BASE_DIR/.git/info/exclude"
+if [ -f "$EXCLUDE_FILE" ] && ! grep -q '^\.claude/$' "$EXCLUDE_FILE"; then
+  echo ".claude/" >> "$EXCLUDE_FILE"
+  echo "Added .claude/ to git exclude."
+fi
+<%_ } _%>
+<%_ } _%>
