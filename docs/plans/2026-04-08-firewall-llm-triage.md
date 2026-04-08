@@ -291,21 +291,62 @@ Při deny/escalate mitmproxy vrátí HTTP 403 s JSON body:
 
 ### Audit log
 
-Každé LLM rozhodnutí se loguje do SQLite pro audit trail:
+Dvě úrovně logování:
 
-```sql
-CREATE TABLE IF NOT EXISTS llm_decisions (
-    id TEXT PRIMARY KEY,
-    timestamp TEXT NOT NULL,
-    domain TEXT NOT NULL,
-    url TEXT NOT NULL,
-    method TEXT NOT NULL,
-    decision TEXT NOT NULL,        -- approve|deny|escalate
-    reasoning TEXT NOT NULL,       -- LLM reasoning
-    source TEXT NOT NULL,          -- "auto" | "request:{id}"
-    cached BOOLEAN DEFAULT FALSE
-);
+**1. SQLite (dashboard, queries, statistiky):**
+
+Tabulka `llm_decisions` — viz Databázové změny níže. Slouží pro dashboard, filtrování, statistiky. Retention 30 dní.
+
+**2. JSONL audit soubor (forenzní, append-only, trvalý):**
+
+Samostatný volume `/audit`, JSONL formát. Loguje se **každý request bez výjimky** — i whitelisted, i cached. Slouží pro forenzní dohledání v případě úniku dat.
+
+```jsonl
+{"ts":"2026-04-08T14:32:01Z","domain":"docs.python.org","url":"https://docs.python.org/3/library/asyncio.html","method":"GET","headers":{"Accept":"*/*","User-Agent":"pip/24.0"},"body_sha256":"e3b0c44298fc...","body_preview":"","decision":"approve","reasoning":"Official Python docs","source":"llm","review_status":"pending","latency_ms":1200}
+{"ts":"2026-04-08T14:32:05Z","domain":"evil.xyz","url":"https://evil.xyz/collect","method":"POST","headers":{"Content-Type":"application/json"},"body_sha256":"a1b2c3d4e5f6...","body_preview":"{\"token\":\"ghp_...","decision":"deny","reasoning":"Unknown domain, POST with credential-like content","source":"llm","review_status":null,"latency_ms":800}
 ```
+
+**Pole v audit logu:**
+- `ts` — ISO timestamp
+- `domain`, `url`, `method` — request identifikace
+- `headers` — kompletní request headers
+- `body_sha256` — SHA256 hash celého body (pro forenzní korelaci)
+- `body_preview` — první ~4KB body (stejné co vidí LLM)
+- `decision` — approve/deny/escalate
+- `reasoning` — LLM reasoning (nebo "rule:allow", "rule:deny", "cache:hit")
+- `source` — llm / rule / cache / credential_scan
+- `review_status` — pending/reviewed/blocked (pro LLM auto-approvals)
+- `latency_ms` — čas zpracování
+
+**Docker volume:**
+```yaml
+volumes:
+  audit-log:
+
+services:
+  firewall:
+    volumes:
+      - audit-log:/audit
+  # devcontainer NEMOUNTUJE audit volume
+```
+
+### LLM auto-approval review flow
+
+LLM auto-approve není "fire and forget". Developer má oversight:
+
+```
+LLM approve → request projde → status: "auto-approved" (pending review)
+    │
+    ├─ Developer klikne "Reviewed" → status: "reviewed"
+    │     (potvrzeno, zůstává v cache/rules)
+    │
+    └─ Developer klikne "Block" → status: "blocked"
+          → smaže z cache
+          → vytvoří deny rule v rule engine
+          → budoucí requesty automaticky blokovány
+```
+
+**V dashboardu:** Sekce **"Auto-Approved (pending review)"** — seznam requestů které LLM pustil, ale developer ještě nezkontroloval. U každého: domain, URL, method, body preview, LLM reasoning, dva tlačítka: Reviewed / Block.
 
 ### Databázové změny
 
@@ -339,12 +380,17 @@ CREATE TABLE IF NOT EXISTS llm_decisions (
     decision TEXT NOT NULL,
     reasoning TEXT NOT NULL,
     source TEXT NOT NULL,
-    cached BOOLEAN DEFAULT FALSE
+    cached BOOLEAN DEFAULT FALSE,
+    review_status TEXT,            -- NULL (n/a) | pending | reviewed | blocked
+    reviewed_at TEXT               -- timestamp kdy developer provedl review
 );
 CREATE INDEX idx_decisions_timestamp ON llm_decisions(timestamp);
 CREATE INDEX idx_decisions_domain ON llm_decisions(domain);
 CREATE INDEX idx_decisions_decision ON llm_decisions(decision, timestamp);
+CREATE INDEX idx_decisions_review ON llm_decisions(review_status) WHERE review_status = 'pending';
 ```
+
+`review_status` se nastavuje jen pro `decision = 'approve'` (auto-approved requesty). Pro deny/escalate je NULL.
 
 **Retention policy:** Při startu a pak každých 24h: `DELETE FROM llm_decisions WHERE timestamp < datetime('now', '-30 days')`. Maximum 100k řádků.
 
@@ -457,6 +503,9 @@ POST   /api/requests/{id}/deny      # deny escalated request
 # LLM decisions audit log
 GET    /api/decisions           # list (paginated, default 50)
 GET    /api/decisions/stats     # aggregated stats
+GET    /api/decisions/pending-review  # auto-approved, pending developer review
+POST   /api/decisions/{id}/review     # mark as reviewed
+POST   /api/decisions/{id}/block      # mark as blocked → creates deny rule
 
 # Whitelist (legacy compatibility)
 GET    /api/whitelist           # current allow rules
@@ -483,10 +532,11 @@ Nové funkce pro rules a decisions tabulky.
 
 Dashboard (`index.html`) se rozšíří o nové sekce:
 
-1. **Escalated Requests** — requesty kde LLM eskaloval na developera (approve/deny tlačítka)
-2. **Rules** — CRUD pro pravidla (domain, URL pattern, action) s formulářem pro přidání
-3. **LLM Decisions** — audit log s filtrováním (approve/deny/escalate, domain, časové rozmezí)
-4. **Stats** — počet auto-approved, auto-denied, escalated za posledních 24h/7d
+1. **Auto-Approved (pending review)** — requesty které LLM schválil, developer ještě nezkontroloval. Tlačítka: Reviewed / Block. U každého: domain, URL, method, body preview, LLM reasoning.
+2. **Escalated Requests** — requesty kde LLM eskaloval na developera (approve/deny tlačítka)
+3. **Rules** — CRUD pro pravidla (domain, URL pattern, action) s formulářem pro přidání
+4. **LLM Decisions** — audit log s filtrováním (approve/deny/escalate, domain, časové rozmezí)
+5. **Stats** — počet auto-approved, auto-denied, escalated, reviewed, blocked za posledních 24h/7d
 
 ### Konfigurace
 
@@ -505,13 +555,15 @@ Nové environment variables:
 | `LLM_ENABLED` | `true` | Zapnout/vypnout LLM evaluaci (false = vše escalate) |
 | `MITMPROXY_CA_DIR` | `/data/certs` | Adresář pro CA certifikát |
 | `MANAGER_AUTH_TOKEN` | (povinné) | Bearer token pro management API endpointy |
+| `AUDIT_LOG_PATH` | `/audit/firewall.jsonl` | Cesta k JSONL audit logu |
 
 ## Dotčené soubory
 
 ### Nové soubory
 
 - `services/firewall/manager/firewall_addon.py` — mitmproxy addon, hlavní interceptor
-- `services/firewall/manager/llm_evaluator.py` — Claude API klient, prompt construction
+- `services/firewall/manager/llm_evaluator.py` — Azure OpenAI klient, prompt construction
+- `services/firewall/manager/audit_logger.py` — JSONL append logger pro forenzní audit
 - `services/firewall/manager/rule_engine.py` — statická pravidla (whitelist/block)
 - `services/firewall/manager/decision_cache.py` — in-memory LLM decision cache
 
@@ -619,6 +671,9 @@ Integrace Azure OpenAI API pro automatické vyhodnocování neznámých požadav
 - [ ] Integrace do addon
 - [ ] Fast-track přes /api/request + nový response contract
 - [ ] Escalated requests UI v dashboardu
+- [ ] Auto-approved review flow (pending review → reviewed / blocked)
+- [ ] JSONL audit logger (append, každý request, body_sha256)
+- [ ] Audit volume v docker-compose template
 - [ ] JSON 403 error responses
 - [ ] SQLite WAL mode
 - [ ] Prompt tuning
