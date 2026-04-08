@@ -35,6 +35,11 @@ set -g status-style "bg=colour235,fg=colour136"\n\
 set -g status-left "#[fg=colour46]#S "\n\
 set -g status-right "#[fg=colour136]%H:%M"\n\
 set -g default-terminal "screen-256color"\n\
+set -s set-clipboard on\n\
+set -g mode-keys vi\n\
+bind -T copy-mode-vi v send -X begin-selection\n\
+bind -T copy-mode-vi y send -X copy-pipe-and-cancel "printf '"'"'\\033]52;c;%s\\a'"'"' \\"$(base64)\\" > /dev/tty"\n\
+bind -T copy-mode-vi MouseDragEnd1Pane send -X copy-pipe-and-cancel "printf '"'"'\\033]52;c;%s\\a'"'"' \\"$(base64)\\" > /dev/tty"\n\
 ' > ~/.tmux.conf
 
 # Command history directory
